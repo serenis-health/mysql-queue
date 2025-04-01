@@ -1,0 +1,15 @@
+services:
+  mysql:
+    image: mysql:latest
+    container_name: mysql_test
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: serenis
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+      start_period: 5s
+      interval: 2s
