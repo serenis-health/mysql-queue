@@ -1,6 +1,6 @@
 {
   "name": "@serenis-health/mysql-queue-monorepo",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "lint": "eslint --fix ."
