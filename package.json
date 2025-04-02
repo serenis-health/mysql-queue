@@ -1,5 +1,5 @@
 {
-  "name": "mysql-queue-monorepo",
+  "name": "@serenis-health/mysql-queue-monorepo",
   "version": "0.0.0",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
