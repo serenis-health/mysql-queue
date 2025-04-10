@@ -2,7 +2,8 @@
   "name": "@serenis-health/mysql-queue",
   "version": "0.0.0",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json"
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest"
   },
   "devDependencies": {
     "@types/node": "^22.13.15",
@@ -12,5 +13,7 @@
   "dependencies": {
     "mysql2": "^3.14.0",
     "pino": "^9.6.0"
-  }
+  },
+  "main": "dist/index",
+  "types": "dist/index.d.ts"
 }
