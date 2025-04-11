@@ -2,6 +2,7 @@ import {
   Connection,
   createPool,
   PoolConnection,
+  ResultSetHeader,
   RowDataPacket,
 } from "mysql2/promise";
 import {
@@ -88,7 +89,7 @@ export function Database(logger: Logger, options: { uri: string }) {
           job.startAfter,
         ]);
 
-        await conn.query(
+        const [{ affectedRows }] = await conn.query<ResultSetHeader>(
           `INSERT INTO ${TABLE_JOBS} (id, name, payload, status, priority, startAfter, queueId)
            SELECT j.*, q.id
            FROM (SELECT ? AS id, ? AS name, ? AS payload, ? AS status, ? AS priority, ? AS startAfter ${params
@@ -98,6 +99,8 @@ export function Database(logger: Logger, options: { uri: string }) {
           JOIN ${TABLE_QUEUES} q ON q.name = ?`,
           [...values, queueName],
         );
+        if (affectedRows === 0)
+          throw new Error("Failed to add jobs, maybe queue does not exist");
       }
 
       await (connection ? query(connection) : withConnection(query));
