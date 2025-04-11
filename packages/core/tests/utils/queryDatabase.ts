@@ -2,8 +2,11 @@ import mysql, { QueryResult } from "mysql2/promise";
 
 export type Database = ReturnType<typeof QueryDatabase>;
 
-export function QueryDatabase(params: { uri: string }) {
-  const pool = mysql.createPool({ uri: params.uri, waitForConnections: true });
+export function QueryDatabase(params: { dbUri: string }) {
+  const pool = mysql.createPool({
+    uri: params.dbUri,
+    waitForConnections: true,
+  });
 
   return {
     async dispose() {
