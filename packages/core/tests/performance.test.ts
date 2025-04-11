@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vitest } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vitest } from "vitest";
 import { MysqlQueue } from "../src";
 import { waitInvoked } from "./utils/waitInvoked";
 
@@ -18,8 +18,11 @@ describe("Performance", () => {
     await mysqlQueue.dispose();
   });
 
-  it("should handle 1000 jobs in less than 2 seconds (with 10 workers)", async () => {
+  beforeEach(async () => {
     await mysqlQueue.initialize();
+  });
+
+  it("should handle 1000 jobs in less than 2 seconds (with 10 workers)", async () => {
     const queue = "performance";
     await mysqlQueue.upsertQueue(queue);
 
