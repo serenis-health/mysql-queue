@@ -3,9 +3,13 @@
   "version": "0.0.1",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
-    "lint": "eslint --fix ."
+    "lint": "eslint --fix .",
+    "build": "pnpm --recursive --parallel run build",
+    "typecheck": "pnpm --recursive --parallel run typecheck",
+    "test": "pnpm --recursive --parallel run test"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.28.1",
     "@eslint/js": "^9.23.0",
     "eslint": "^9.23.0",
     "typescript": "^5.8.2",
