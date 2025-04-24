@@ -5,7 +5,8 @@
   "scripts": {
     "lint": "eslint --fix . && prettier --write .",
     "lint:check": "eslint . && prettier --check .",
-    "prepare": "husky"
+    "prepare": "husky",
+    "typecheck": "pnpm -r run typecheck"
   },
   "devDependencies": {
     "@eslint/js": "^9.23.0",
