@@ -28,12 +28,7 @@ describe("Performance", () => {
 
     const workers = await Promise.all(
       Array.from({ length: WORKER_COUNT }).map((_) => {
-        return mysqlQueue.work(
-          queue,
-          (j) => WorkerMocks.handle(j),
-          undefined,
-          50,
-        );
+        return mysqlQueue.work(queue, (j) => WorkerMocks.handle(j), undefined, 50);
       }),
     );
 

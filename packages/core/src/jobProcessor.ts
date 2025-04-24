@@ -3,12 +3,7 @@ import { Database } from "./database";
 import { Logger } from "./logger";
 import { PoolConnection } from "mysql2/promise";
 
-export function JobProcessor(
-  database: Database,
-  logger: Logger,
-  queue: Queue,
-  callback: WorkerCallback,
-) {
+export function JobProcessor(database: Database, logger: Logger, queue: Queue, callback: WorkerCallback) {
   async function process(job: Job, workerAbortSignal: AbortSignal) {
     await database.withConnection(async (connection) => {
       await connection.beginTransaction();
@@ -22,10 +17,7 @@ export function JobProcessor(
       } catch (error: unknown) {
         await connection.rollback();
         const typedError = error as Error;
-        logger.error(
-          { error: errorToJson(typedError) },
-          `jobProcessor.process.error`,
-        );
+        logger.error({ error: errorToJson(typedError) }, `jobProcessor.process.error`);
       }
     });
 
@@ -35,62 +27,33 @@ export function JobProcessor(
       workerAbortSignal.addEventListener("abort", () => {
         callbackAbortController.abort();
         clearTimeout(timeoutId);
-        logger.debug(
-          { jobId: job.id },
-          `jobProcessor.process.abortedDueWorkerAbort`,
-        );
+        logger.debug({ jobId: job.id }, `jobProcessor.process.abortedDueWorkerAbort`);
       });
 
-      const callbackPromise = callback(
-        job,
-        callbackAbortController.signal,
-        connection,
-      );
+      const callbackPromise = callback(job, callbackAbortController.signal, connection);
       const timeoutPromise = new Promise((_, reject) => {
         timeoutId = setTimeout(() => {
           callbackAbortController.abort();
-          reject(
-            new Error(
-              `Job execution exceed the timeout of ${queue.maxDurationMs}`,
-            ),
-          );
-          logger.debug(
-            { jobId: job.id },
-            `jobProcessor.process.abortedDueTimeout`,
-          );
+          reject(new Error(`Job execution exceed the timeout of ${queue.maxDurationMs}`));
+          logger.debug({ jobId: job.id }, `jobProcessor.process.abortedDueTimeout`);
         }, queue.maxDurationMs);
       });
 
-      await Promise.race([callbackPromise, timeoutPromise]).finally(() =>
-        clearTimeout(timeoutId),
-      );
+      await Promise.race([callbackPromise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
       await database.markJobAsCompleted(connection, job.id, job.attempts);
 
       logger.info({ jobId: job.id }, `jobProcessor.process.completed`);
     }
 
-    async function handleCallbackError(
-      error: unknown,
-      connection: PoolConnection,
-    ) {
+    async function handleCallbackError(error: unknown, connection: PoolConnection) {
       if (workerAbortSignal.aborted) return;
       const typedError = error as Error;
       if (job.attempts < queue.maxRetries - 1) {
         const now = Date.now();
         const startAfter = queue.backoffMultiplier
-          ? new Date(
-              now +
-                queue.minDelayMs *
-                  Math.pow(queue.backoffMultiplier, job.attempts),
-            )
+          ? new Date(now + queue.minDelayMs * Math.pow(queue.backoffMultiplier, job.attempts))
           : new Date(now + queue.minDelayMs);
-        await database.incrementJobAttempts(
-          connection,
-          job.id,
-          typedError.message,
-          job.attempts,
-          startAfter,
-        );
+        await database.incrementJobAttempts(connection, job.id, typedError.message, job.attempts, startAfter);
         logger.warn(
           {
             error: errorToJson(typedError),
@@ -101,16 +64,8 @@ export function JobProcessor(
           `jobProcessor.process.failed`,
         );
       } else {
-        await database.markJobAsFailed(
-          connection,
-          job.id,
-          typedError.message,
-          job.attempts,
-        );
-        logger.error(
-          { error: errorToJson(typedError), jobId: job.id },
-          `jobProcessor.process.failedAfterAttempts`,
-        );
+        await database.markJobAsFailed(connection, job.id, typedError.message, job.attempts);
+        logger.error({ error: errorToJson(typedError), jobId: job.id }, `jobProcessor.process.failedAfterAttempts`);
       }
     }
   }
@@ -124,18 +79,12 @@ export function JobProcessor(
       }
 
       try {
-        const jobs = (await database.getPendingJobs(
-          queue.id,
-          batchSize,
-        )) as Job[];
+        const jobs = (await database.getPendingJobs(queue.id, batchSize)) as Job[];
 
         if (jobs.length === 0) {
           return;
         }
-        logger.debug(
-          { jobsCount: jobs.length },
-          `jobProcessor.processBatch.jobsFound`,
-        );
+        logger.debug({ jobsCount: jobs.length }, `jobProcessor.processBatch.jobsFound`);
 
         await Promise.all(
           jobs.map(async (job) => {
@@ -144,10 +93,7 @@ export function JobProcessor(
         );
       } catch (error: unknown) {
         const typedError = error as Error;
-        logger.error(
-          { error: errorToJson(typedError) },
-          `jobProcessor.processBatch.error`,
-        );
+        logger.error({ error: errorToJson(typedError) }, `jobProcessor.processBatch.error`);
       }
     },
   };
