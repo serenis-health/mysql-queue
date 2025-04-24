@@ -6,7 +6,8 @@
     "lint": "eslint --fix . && prettier --write .",
     "lint:check": "eslint . && prettier --check .",
     "prepare": "husky",
-    "typecheck": "pnpm -r run typecheck"
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm -r run test"
   },
   "devDependencies": {
     "@eslint/js": "^9.23.0",

@@ -1,0 +1,21 @@
+name: Setup
+description: Perform standard setup and install dependencies using pnpm.
+inputs:
+  node-version:
+    description: The version of Node.js to install
+    required: true
+    default: 20.14.0
+
+runs:
+  using: composite
+  steps:
+    - name: setup pnpm
+      uses: pnpm/action-setup@v4
+    - name: setup node
+      uses: actions/setup-node@v4
+      with:
+        cache: pnpm
+        node-version: ${{ inputs.node-version }}
+    - name: install dependencies
+      shell: bash
+      run: pnpm install
