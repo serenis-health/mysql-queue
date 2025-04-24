@@ -1,0 +1,30 @@
+name: release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 14-release-core-package-on-github-package-registry]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  release:
+    if: github.repository_owner == 'serenis-health'
+    name: Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: install dependencies
+        uses: ./.github/actions/setup
+      - name: publish
+        run: |
+          pnpm build
+          pnpm publish --no-git-checks --access public
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
