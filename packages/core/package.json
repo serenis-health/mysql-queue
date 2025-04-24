@@ -3,7 +3,8 @@
   "version": "0.0.0",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "test": "vitest"
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^22.13.15",
