@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vitest } from "vitest";
 import { MysqlQueue } from "../src";
+import { randomUUID } from "node:crypto";
 import { waitInvoked } from "./utils/waitInvoked";
 
 describe("Performance", () => {
@@ -11,6 +12,7 @@ describe("Performance", () => {
   };
   const mysqlQueue = MysqlQueue({
     dbUri: "mysql://root:password@localhost:3306/serenis",
+    tablesPrefix: `${randomUUID().slice(-4)}_`,
   });
 
   afterEach(async () => {

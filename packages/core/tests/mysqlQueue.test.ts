@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { MysqlQueue } from "../src";
 import { QueryDatabase } from "./utils/queryDatabase";
+import { randomUUID } from "node:crypto";
 import { RowDataPacket } from "mysql2";
 
 const dbUri = "mysql://root:password@localhost:3306/serenis";
@@ -10,13 +11,14 @@ describe("mysqlQueue", () => {
   const instance = MysqlQueue({
     dbUri,
     loggingLevel: "fatal",
+    tablesPrefix: `${randomUUID().slice(-4)}_`,
   });
 
   describe("initialize", () => {
     it("should apply migrations", async () => {
       await instance.initialize();
 
-      const rows = await queryDatabase.query<RowDataPacket[]>("SELECT * FROM mysql_queue_migrations;");
+      const rows = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.migrationTable()};`);
       expect(rows).toEqual([
         {
           applied_at: expect.any(Date),
@@ -36,7 +38,7 @@ describe("mysqlQueue", () => {
 
       const rows = await queryDatabase.query<RowDataPacket[]>("SHOW TABLES;");
       const tableNames = rows.map((row) => row.Tables_in_serenis);
-      expect(tableNames).toEqual(["mysql_queue_jobs", "mysql_queue_migrations", "mysql_queue_queues"]);
+      expect(tableNames).toEqual(expect.arrayContaining([instance.jobsTable(), instance.migrationTable(), instance.queuesTable()]));
 
       await instance.destroy();
     });
@@ -57,7 +59,7 @@ describe("mysqlQueue", () => {
 
       const rows = await queryDatabase.query<RowDataPacket[]>("SHOW TABLES;");
       const tableNames = rows.map((row) => row.Tables_in_serenis);
-      expect(tableNames).toEqual(["another_table"]);
+      expect(tableNames).toEqual(expect.arrayContaining(["another_table"]));
     });
   });
 
@@ -74,7 +76,7 @@ describe("mysqlQueue", () => {
       const queueName = "test_quque";
       await instance.upsertQueue(queueName);
 
-      const [row] = await queryDatabase.query<RowDataPacket[]>("SELECT * FROM mysql_queue_queues;");
+      const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.queuesTable()};`);
 
       expect(isValidUUID(row.id)).toBeTruthy();
       expect(row).toEqual({
@@ -98,7 +100,7 @@ describe("mysqlQueue", () => {
         minDelayMs: 2000,
       });
 
-      const [row] = await queryDatabase.query<RowDataPacket[]>("SELECT * FROM mysql_queue_queues;");
+      const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.queuesTable()};`);
 
       expect(row).toEqual({
         backoffMultiplier: 3,
@@ -129,7 +131,7 @@ describe("mysqlQueue", () => {
         payload: { message: "Hello, world!" },
       });
 
-      const [row] = await queryDatabase.query<RowDataPacket[]>("SELECT * FROM mysql_queue_jobs;");
+      const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.jobsTable()};`);
 
       expect(isValidUUID(jobIds[0])).toBeTruthy();
       expect(row).toEqual({
