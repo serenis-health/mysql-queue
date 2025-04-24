@@ -5,6 +5,7 @@ export interface Options {
   dbUri: string;
   loggingLevel?: LevelWithSilentOrString;
   loggingPrettyPrint?: boolean;
+  tablesPrefix?: string;
 }
 
 export interface Queue {

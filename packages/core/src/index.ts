@@ -1,6 +1,6 @@
-import { Database, TABLE_JOBS, TABLE_QUEUES } from "./database";
 import { EnqueueParams, JobForInsert, Options, Queue, RetrieveQueueParams, UpsertQueueParams, WorkerCallback } from "./types";
 import { Connection } from "mysql2/promise";
+import { Database } from "./database";
 import { Logger } from "./logger";
 import { randomUUID } from "node:crypto";
 import { WorkersFactory } from "./worker";
@@ -10,7 +10,10 @@ export function MysqlQueue(options: Options) {
     level: options.loggingLevel,
     prettyPrint: options.loggingPrettyPrint,
   });
-  const database = Database(logger, { uri: options.dbUri });
+  const database = Database(logger, {
+    tablesPrefix: options.tablesPrefix,
+    uri: options.dbUri,
+  });
   const workersFactory = WorkersFactory(logger, database);
 
   async function retrieveQueue(params: RetrieveQueueParams) {
@@ -61,17 +64,22 @@ export function MysqlQueue(options: Options) {
       const values = jobsForInsert
         .map(
           (job) =>
-            `SELECT '${job.id}', '${job.name}', '${job.payload}', '${job.status}', '${job.priority}', ${job.startAfter ? `'${job.startAfter.toISOString().slice(0, 19).replace("T", " ")}'` : "NULL"}`,
+            `SELECT '${job.id}', '${job.name}', '${job.payload}', '${job.status}', '${job.priority}', ${
+              job.startAfter ? `'${job.startAfter.toISOString().slice(0, 19).replace("T", " ")}'` : "NULL"
+            }`,
         )
         .join(" UNION ALL ");
 
-      return `INSERT INTO ${TABLE_JOBS} (id, name, payload, status, priority, startAfter, queueId) SELECT j.id, j.name, j.payload, j.status, j.priority, j.startAfter, q.id FROM (${values}) AS j(id, name, payload, status, priority, startAfter) JOIN ${TABLE_QUEUES} q ON q.name = '${queueName}'`;
+      return `INSERT INTO ${database.jobsTable()} (id, name, payload, status, priority, startAfter, queueId) SELECT j.id, j.name, j.payload, j.status, j.priority, j.startAfter, q.id FROM (${values}) AS j(id, name, payload, status, priority, startAfter) JOIN ${database.queuesTable()} q ON q.name = '${queueName}'`;
     },
     async initialize() {
       logger.debug("starting");
       await database.runMigrations();
       logger.info("started");
     },
+    jobsTable: database.jobsTable,
+    migrationTable: database.migrationsTable,
+    queuesTable: database.queuesTable,
     async upsertQueue(name: string, params: UpsertQueueParams = {}) {
       const queueWithoutId: Omit<Queue, "id"> = {
         backoffMultiplier: params.backoffMultiplier !== undefined ? params.backoffMultiplier : 2,
