@@ -1,13 +1,5 @@
 import { Database, TABLE_JOBS, TABLE_QUEUES } from "./database";
-import {
-  EnqueueParams,
-  JobForInsert,
-  Options,
-  Queue,
-  RetrieveQueueParams,
-  UpsertQueueParams,
-  WorkerCallback,
-} from "./types";
+import { EnqueueParams, JobForInsert, Options, Queue, RetrieveQueueParams, UpsertQueueParams, WorkerCallback } from "./types";
 import { Connection } from "mysql2/promise";
 import { Logger } from "./logger";
 import { randomUUID } from "node:crypto";
@@ -42,14 +34,8 @@ export function MysqlQueue(options: Options) {
       logger.flush();
     },
 
-    async enqueue(
-      queueName: string,
-      params: EnqueueParams,
-      connection?: Connection,
-    ) {
-      const jobsForInsert: JobForInsert[] = (
-        Array.isArray(params) ? params : [params]
-      ).map((p) => ({
+    async enqueue(queueName: string, params: EnqueueParams, connection?: Connection) {
+      const jobsForInsert: JobForInsert[] = (Array.isArray(params) ? params : [params]).map((p) => ({
         id: randomUUID(),
         name: p.name,
         payload: JSON.stringify(p.payload),
@@ -63,9 +49,7 @@ export function MysqlQueue(options: Options) {
       return { jobIds: jobsForInsert.map((j) => j.id) };
     },
     getEnqueueRawSql(queueName: string, params: EnqueueParams) {
-      const jobsForInsert: JobForInsert[] = (
-        Array.isArray(params) ? params : [params]
-      ).map((p) => ({
+      const jobsForInsert: JobForInsert[] = (Array.isArray(params) ? params : [params]).map((p) => ({
         id: randomUUID(),
         name: p.name,
         payload: JSON.stringify(p.payload),
@@ -90,8 +74,7 @@ export function MysqlQueue(options: Options) {
     },
     async upsertQueue(name: string, params: UpsertQueueParams = {}) {
       const queueWithoutId: Omit<Queue, "id"> = {
-        backoffMultiplier:
-          params.backoffMultiplier !== undefined ? params.backoffMultiplier : 2,
+        backoffMultiplier: params.backoffMultiplier !== undefined ? params.backoffMultiplier : 2,
         maxDurationMs: params.maxDurationMs || 5000,
         maxRetries: params.maxRetries || 3,
         minDelayMs: params.minDelayMs || 1000,
@@ -113,19 +96,9 @@ export function MysqlQueue(options: Options) {
       const queue: Queue = { id, ...queueWithoutId };
       return queue;
     },
-    async work(
-      queueName: string,
-      callback: WorkerCallback,
-      pollingIntervalMs = 500,
-      batchSize = 1,
-    ) {
+    async work(queueName: string, callback: WorkerCallback, pollingIntervalMs = 500, batchSize = 1) {
       const queue = await retrieveQueue({ name: queueName });
-      return workersFactory.create(
-        callback,
-        pollingIntervalMs,
-        batchSize,
-        queue,
-      );
+      return workersFactory.create(callback, pollingIntervalMs, batchSize, queue);
     },
   };
 }

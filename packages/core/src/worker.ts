@@ -7,20 +7,8 @@ import { randomUUID } from "node:crypto";
 export function WorkersFactory(logger: Logger, database: Database) {
   const workers: Worker[] = [];
 
-  function create(
-    callback: WorkerCallback,
-    pollingIntervalMs = 500,
-    batchSize = 1,
-    queue: Queue,
-  ) {
-    const worker = Worker(
-      callback,
-      pollingIntervalMs,
-      batchSize,
-      logger,
-      database,
-      queue,
-    );
+  function create(callback: WorkerCallback, pollingIntervalMs = 500, batchSize = 1, queue: Queue) {
+    const worker = Worker(callback, pollingIntervalMs, batchSize, logger, database, queue);
     workers.push(worker);
     return worker;
   }
@@ -34,14 +22,7 @@ export function WorkersFactory(logger: Logger, database: Database) {
 
 export type Worker = ReturnType<typeof Worker>;
 
-export function Worker(
-  callback: WorkerCallback,
-  pollingIntervalMs = 500,
-  batchSize = 1,
-  logger: Logger,
-  database: Database,
-  queue: Queue,
-) {
+export function Worker(callback: WorkerCallback, pollingIntervalMs = 500, batchSize = 1, logger: Logger, database: Database, queue: Queue) {
   const workerId = randomUUID();
   const wLogger = logger.child({ workerId });
 

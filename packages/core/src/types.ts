@@ -39,11 +39,7 @@ export interface JobForInsert {
   startAfter: Date | null;
 }
 
-export type WorkerCallback = (
-  job: Job,
-  signal: AbortSignal,
-  connection: Connection,
-) => Promise<void> | void;
+export type WorkerCallback = (job: Job, signal: AbortSignal, connection: Connection) => Promise<void> | void;
 
 export interface UpsertQueueParams {
   maxRetries?: number;

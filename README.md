@@ -69,35 +69,30 @@ of jobs per day. If it's good enough for them, it's probably good enough for you
 ### How to
 
 ```typescript
-const mysqlQueue = MysqlQueue({ dbUri: 'mysql://root:password@localhost:3306/serenis' })
+const mysqlQueue = MysqlQueue({ dbUri: "mysql://root:password@localhost:3306/serenis" });
 
-await mysqlQueue.initialize()
+await mysqlQueue.initialize();
 
-const queue = 'emails'
-const q = await mysqlQueue.upsertQueue({ name: 'emails' })
+const queue = "emails";
+const q = await mysqlQueue.upsertQueue({ name: "emails" });
 
-console.log(q) // { id: '4dcc1f2b-6752-4a55-98a5-eb71aef19ffd', name: 'emails', backoffMultiplier: 2, maxRetries: 3, minDelayMs: 1000, maxDurationMs: 5000 }
+console.log(q); // { id: '4dcc1f2b-6752-4a55-98a5-eb71aef19ffd', name: 'emails', backoffMultiplier: 2, maxRetries: 3, minDelayMs: 1000, maxDurationMs: 5000 }
 
-await mysqlQueue.enqueue(queue, { name: 'sendEmail', payload: { to: 'hello@serenis.it' } })
+await mysqlQueue.enqueue(queue, { name: "sendEmail", payload: { to: "hello@serenis.it" } });
 
-await mysqlQueue.enqueue(queue, [{ name: 'sendEmail', payload: { to: 'hello@serenis.it' } }])
+await mysqlQueue.enqueue(queue, [{ name: "sendEmail", payload: { to: "hello@serenis.it" } }]);
 
-const worker = await mysqlQueue.work(
-  queue,
-  async (job: Job, signal: AbortSignal, connection: Connection) => {
-    // job contains all job data
-    // signal is an AbortSignal that can be called due to a timeout or a worker stop
-    // connection has an active transaction that can be used to perform additional operations in the same transaction
-    await emailService.send(job.payload, signal);
-  },
-);
+const worker = await mysqlQueue.work(queue, async (job: Job, signal: AbortSignal, connection: Connection) => {
+  // job contains all job data
+  // signal is an AbortSignal that can be called due to a timeout or a worker stop
+  // connection has an active transaction that can be used to perform additional operations in the same transaction
+  await emailService.send(job.payload, signal);
+});
 
-void worker.start() // start consuming jobs
+void worker.start(); // start consuming jobs
 
-await worker.stop() // stop consuming jobs
+await worker.stop(); // stop consuming jobs
 
-
-await mysqlQueue.dispose() // gracefully shutdown database and workers
-await mysqlQueue.destroy() // remove all queues and jobs and drop the database
-
+await mysqlQueue.dispose(); // gracefully shutdown database and workers
+await mysqlQueue.destroy(); // remove all queues and jobs and drop the database
 ```

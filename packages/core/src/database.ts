@@ -1,15 +1,5 @@
-import {
-  Connection,
-  createPool,
-  PoolConnection,
-  ResultSetHeader,
-  RowDataPacket,
-} from "mysql2/promise";
-import {
-  DbAddJobsParams,
-  DbCreateQueueParams,
-  DbUpdateQueueParams,
-} from "./types";
+import { Connection, createPool, PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
+import { DbAddJobsParams, DbCreateQueueParams, DbUpdateQueueParams } from "./types";
 import { Logger } from "./logger";
 
 export const TABLES_NAME_PREFIX = "mysql_queue_";
@@ -60,9 +50,7 @@ export function Database(logger: Logger, options: { uri: string }) {
     },
   ];
 
-  async function withConnection<T>(
-    cb: (connection: PoolConnection) => Promise<T>,
-  ) {
+  async function withConnection<T>(cb: (connection: PoolConnection) => Promise<T>) {
     const connection = await pool.getConnection();
     try {
       return await cb(connection);
@@ -72,22 +60,11 @@ export function Database(logger: Logger, options: { uri: string }) {
   }
 
   return {
-    async addJobs(
-      queueName: string,
-      params: Omit<DbAddJobsParams, "queueId">[],
-      connection?: Connection,
-    ) {
+    async addJobs(queueName: string, params: Omit<DbAddJobsParams, "queueId">[], connection?: Connection) {
       if (params.length === 0) return;
 
       async function query(conn: Connection) {
-        const values = params.flatMap((job) => [
-          job.id,
-          job.name,
-          job.payload,
-          job.status,
-          job.priority,
-          job.startAfter,
-        ]);
+        const values = params.flatMap((job) => [job.id, job.name, job.payload, job.status, job.priority, job.startAfter]);
 
         const [{ affectedRows }] = await conn.query<ResultSetHeader>(
           `INSERT INTO ${TABLE_JOBS} (id, name, payload, status, priority, startAfter, queueId)
@@ -99,8 +76,7 @@ export function Database(logger: Logger, options: { uri: string }) {
           JOIN ${TABLE_QUEUES} q ON q.name = ?`,
           [...values, queueName],
         );
-        if (affectedRows === 0)
-          throw new Error("Failed to add jobs, maybe queue does not exist");
+        if (affectedRows === 0) throw new Error("Failed to add jobs, maybe queue does not exist");
       }
 
       await (connection ? query(connection) : withConnection(query));
@@ -109,14 +85,7 @@ export function Database(logger: Logger, options: { uri: string }) {
       await withConnection((connection) => {
         return connection.query(
           `INSERT INTO ${TABLE_QUEUES} (id, name, maxRetries, minDelayMs, backoffMultiplier, maxDurationMs) VALUES (?, ?, ?, ?, ?, ?)`,
-          [
-            params.id,
-            params.name,
-            params.maxRetries,
-            params.minDelayMs,
-            params.backoffMultiplier,
-            params.maxDurationMs,
-          ],
+          [params.id, params.name, params.maxRetries, params.minDelayMs, params.backoffMultiplier, params.maxDurationMs],
         );
       });
     },
@@ -125,10 +94,7 @@ export function Database(logger: Logger, options: { uri: string }) {
     },
     async getJobById(jobId: string) {
       const [rows] = await withConnection((connection) =>
-        connection.query<RowDataPacket[]>(
-          `SELECT * FROM ${TABLE_JOBS} WHERE id = ?`,
-          [jobId],
-        ),
+        connection.query<RowDataPacket[]>(`SELECT * FROM ${TABLE_JOBS} WHERE id = ?`, [jobId]),
       );
       return rows.length ? rows[0] : null;
     },
@@ -143,62 +109,46 @@ export function Database(logger: Logger, options: { uri: string }) {
     },
     async getQueueByName(name: string) {
       const [rows] = await withConnection((connection) =>
-        connection.query<RowDataPacket[]>(
-          `SELECT * FROM ${TABLE_QUEUES} WHERE name = ?`,
-          [name],
-        ),
+        connection.query<RowDataPacket[]>(`SELECT * FROM ${TABLE_QUEUES} WHERE name = ?`, [name]),
       );
       return rows.length ? rows[0] : null;
     },
     async getQueueIdByName(name: string) {
       const [rows] = await withConnection((connection) =>
-        connection.query<RowDataPacket[]>(
-          `SELECT id FROM ${TABLE_QUEUES} WHERE name = ?`,
-          [name],
-        ),
+        connection.query<RowDataPacket[]>(`SELECT id FROM ${TABLE_QUEUES} WHERE name = ?`, [name]),
       );
       return rows.length ? (rows[0] as { id: string }) : null;
     },
-    async incrementJobAttempts(
-      connection: PoolConnection,
-      jobId: string,
-      error: string,
-      currentAttempts: number,
-      startAfter: Date,
-    ) {
-      await connection.execute(
-        `UPDATE ${TABLE_JOBS} SET attempts = ?, latestFailureReason = ?, startAfter = ? WHERE id = ?`,
-        [currentAttempts + 1, error, startAfter, jobId],
-      );
+    async incrementJobAttempts(connection: PoolConnection, jobId: string, error: string, currentAttempts: number, startAfter: Date) {
+      await connection.execute(`UPDATE ${TABLE_JOBS} SET attempts = ?, latestFailureReason = ?, startAfter = ? WHERE id = ?`, [
+        currentAttempts + 1,
+        error,
+        startAfter,
+        jobId,
+      ]);
     },
-    async markJobAsCompleted(
-      connection: PoolConnection,
-      jobId: string,
-      currentAttempts: number,
-    ) {
-      await connection.execute(
-        `UPDATE ${TABLE_JOBS} SET attempts = ?, status = ?, completedAt = ? WHERE id = ?`,
-        [currentAttempts + 1, "completed", new Date(), jobId],
-      );
+    async markJobAsCompleted(connection: PoolConnection, jobId: string, currentAttempts: number) {
+      await connection.execute(`UPDATE ${TABLE_JOBS} SET attempts = ?, status = ?, completedAt = ? WHERE id = ?`, [
+        currentAttempts + 1,
+        "completed",
+        new Date(),
+        jobId,
+      ]);
     },
-    async markJobAsFailed(
-      connection: PoolConnection,
-      jobId: string,
-      error: string,
-      currentAttempts: number,
-    ) {
-      await connection.execute(
-        `UPDATE ${TABLE_JOBS} SET attempts = ?, status = ?, failedAt = ?, latestFailureReason = ? WHERE id = ?`,
-        [currentAttempts + 1, "failed", new Date(), error, jobId],
-      );
+    async markJobAsFailed(connection: PoolConnection, jobId: string, error: string, currentAttempts: number) {
+      await connection.execute(`UPDATE ${TABLE_JOBS} SET attempts = ?, status = ?, failedAt = ?, latestFailureReason = ? WHERE id = ?`, [
+        currentAttempts + 1,
+        "failed",
+        new Date(),
+        error,
+        jobId,
+      ]);
     },
     async removeAllTables() {
       const connection = await pool.getConnection();
       await connection.beginTransaction();
       try {
-        const [rows] = await connection.query<RowDataPacket[]>(
-          `SELECT name FROM ${TABLE_MIGRATIONS}`,
-        );
+        const [rows] = await connection.query<RowDataPacket[]>(`SELECT name FROM ${TABLE_MIGRATIONS}`);
         const appliedMigrations = new Set(rows.map((row) => row.name));
         for (const migration of migrations) {
           if (appliedMigrations.has(migration.name)) {
@@ -222,9 +172,7 @@ export function Database(logger: Logger, options: { uri: string }) {
       const connection = await pool.getConnection();
       await connection.beginTransaction();
       try {
-        const [migrationTableRows] = await connection.query<RowDataPacket[]>(
-          `SHOW TABLES like '${TABLE_MIGRATIONS}'`,
-        );
+        const [migrationTableRows] = await connection.query<RowDataPacket[]>(`SHOW TABLES like '${TABLE_MIGRATIONS}'`);
         if (!migrationTableRows.length) {
           await connection.query(`
           CREATE TABLE IF NOT EXISTS ${TABLE_MIGRATIONS} (
@@ -235,20 +183,13 @@ export function Database(logger: Logger, options: { uri: string }) {
         )`);
         }
 
-        const [appliedMigrationsRows] = await connection.query<RowDataPacket[]>(
-          `SELECT name FROM ${TABLE_MIGRATIONS}`,
-        );
-        const appliedMigrations = new Set(
-          appliedMigrationsRows.map((row) => row.name),
-        );
+        const [appliedMigrationsRows] = await connection.query<RowDataPacket[]>(`SELECT name FROM ${TABLE_MIGRATIONS}`);
+        const appliedMigrations = new Set(appliedMigrationsRows.map((row) => row.name));
 
         for (const migration of migrations) {
           if (!appliedMigrations.has(migration.name)) {
             await connection.query(migration.up);
-            await connection.query(
-              `INSERT INTO ${TABLE_MIGRATIONS} (name) VALUES (?)`,
-              [migration.name],
-            );
+            await connection.query(`INSERT INTO ${TABLE_MIGRATIONS} (name) VALUES (?)`, [migration.name]);
             logger.debug(`Applied up migration ${migration.name}`);
           }
         }
@@ -267,13 +208,7 @@ export function Database(logger: Logger, options: { uri: string }) {
       await withConnection((connection) => {
         return connection.query(
           `UPDATE ${TABLE_QUEUES} SET maxRetries = ?, minDelayMs = ?, backoffMultiplier = ?, maxDurationMs = ? WHERE id = ?`,
-          [
-            params.maxRetries,
-            params.minDelayMs,
-            params.backoffMultiplier,
-            params.maxDurationMs,
-            params.id,
-          ],
+          [params.maxRetries, params.minDelayMs, params.backoffMultiplier, params.maxDurationMs, params.id],
         );
       });
     },

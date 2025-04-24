@@ -28,10 +28,7 @@ describe("cancellablePromise", () => {
 
   it("should be cancellable before resolving with another cancellable promise", async () => {
     const { promise, cancel } = cancellablePromiseFactory(async (signal) => {
-      const { promise: innerPromise } = cancellablePromiseFactory(
-        () => sleep(200),
-        signal,
-      );
+      const { promise: innerPromise } = cancellablePromiseFactory(() => sleep(200), signal);
       await innerPromise;
     });
 

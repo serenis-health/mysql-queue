@@ -1,7 +1,4 @@
-export function cancellablePromiseFactory(
-  executor: (signal: AbortSignal) => Promise<void>,
-  externalSignal?: AbortSignal,
-) {
+export function cancellablePromiseFactory(executor: (signal: AbortSignal) => Promise<void>, externalSignal?: AbortSignal) {
   const controller = new AbortController();
   const { signal } = controller;
 
