@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: serenis
+        ports:
+          - 3306:3306
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: install dependencies
+        uses: ./.github/actions/setup
+
+      - name: typecheck
+        run: |
+          pnpm typecheck
+
+      - name: lint check
+        run: |
+          pnpm lint:check
+
+      - name: tests
+        run: pnpm test
