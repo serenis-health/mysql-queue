@@ -72,6 +72,7 @@ export function MysqlQueue(options: Options) {
 
       return `INSERT INTO ${database.jobsTable()} (id, name, payload, status, priority, startAfter, queueId) SELECT j.id, j.name, j.payload, j.status, j.priority, j.startAfter, q.id FROM (${values}) AS j(id, name, payload, status, priority, startAfter) JOIN ${database.queuesTable()} q ON q.name = '${queueName}'`;
     },
+    getJobExecutionPromise: workersFactory.getJobExecutionPromise,
     async initialize() {
       logger.debug("starting");
       await database.runMigrations();

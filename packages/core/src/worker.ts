@@ -5,10 +5,12 @@ import { Logger } from "./logger";
 import { randomUUID } from "node:crypto";
 
 export function WorkersFactory(logger: Logger, database: Database) {
+  const jobExecutionPromises: Record<string, (job: Job) => void> = {};
   const workers: Worker[] = [];
 
   function create(callback: WorkerCallback, pollingIntervalMs = 500, batchSize = 1, queue: Queue) {
-    const worker = Worker(callback, pollingIntervalMs, batchSize, logger, database, queue);
+    const wrappedCallback = createWrappedCallback(callback, queue);
+    const worker = Worker(wrappedCallback, pollingIntervalMs, batchSize, logger, database, queue);
     workers.push(worker);
     return worker;
   }
@@ -17,7 +19,29 @@ export function WorkersFactory(logger: Logger, database: Database) {
     return Promise.all(workers.map((worker) => worker.stop()));
   }
 
-  return { create, stopAll };
+  function getJobExecutionPromise(queueName: string) {
+    let resolvePromise: () => void;
+    const promise = new Promise<void>((resolve) => {
+      resolvePromise = resolve;
+    });
+    jobExecutionPromises[queueName] = resolvePromise!;
+    return promise;
+  }
+
+  return { create, getJobExecutionPromise, stopAll };
+
+  function createWrappedCallback(callback: WorkerCallback, queue: Queue) {
+    return async function (...args: Parameters<typeof callback>): Promise<void> {
+      try {
+        await callback(...args);
+      } finally {
+        if (jobExecutionPromises[queue.name]) {
+          jobExecutionPromises[queue.name](args[0]);
+          logger.debug({ queueName: queue.name }, "workers.jobExecutionPromiseResolved");
+        }
+      }
+    };
+  }
 }
 
 export type Worker = ReturnType<typeof Worker>;

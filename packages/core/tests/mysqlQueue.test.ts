@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { MysqlQueue } from "../src";
 import { QueryDatabase } from "./utils/queryDatabase";
 import { randomUUID } from "node:crypto";
@@ -116,12 +116,12 @@ describe("mysqlQueue", () => {
   describe("enqueue", () => {
     const queueName = "test_quque";
 
-    beforeAll(async () => {
+    beforeEach(async () => {
       await instance.initialize();
       await instance.upsertQueue(queueName);
     });
 
-    afterAll(async () => {
+    afterEach(async () => {
       await instance.destroy();
     });
 
@@ -159,6 +159,24 @@ describe("mysqlQueue", () => {
           payload: { message: "Hello, world!" },
         }),
       ).rejects.toThrowError("Failed to add jobs, maybe queue does not exist");
+    });
+
+    it("should fire the worker callback", async () => {
+      const promise = instance.getJobExecutionPromise(queueName);
+
+      const workerCbMock = vi.fn();
+      const worker = await instance.work(queueName, workerCbMock);
+
+      const { jobIds } = await instance.enqueue(queueName, {
+        name: "test_job",
+        payload: { message: "Hello, world!" },
+      });
+
+      void worker.start();
+      await promise;
+
+      await worker.stop();
+      expect(workerCbMock).toHaveBeenCalledWith(expect.objectContaining({ id: jobIds[0] }), expect.anything(), expect.anything());
     });
   });
 });
