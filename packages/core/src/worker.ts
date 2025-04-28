@@ -8,27 +8,25 @@ export function WorkersFactory(logger: Logger, database: Database) {
   const jobExecutionPromises: Record<string, (job: Job) => void> = {};
   const workers: Worker[] = [];
 
-  function create(callback: WorkerCallback, pollingIntervalMs = 500, batchSize = 1, queue: Queue) {
-    const wrappedCallback = createWrappedCallback(callback, queue);
-    const worker = Worker(wrappedCallback, pollingIntervalMs, batchSize, logger, database, queue);
-    workers.push(worker);
-    return worker;
-  }
-
-  function stopAll() {
-    return Promise.all(workers.map((worker) => worker.stop()));
-  }
-
-  function getJobExecutionPromise(queueName: string) {
-    let resolvePromise: () => void;
-    const promise = new Promise<void>((resolve) => {
-      resolvePromise = resolve;
-    });
-    jobExecutionPromises[queueName] = resolvePromise!;
-    return promise;
-  }
-
-  return { create, getJobExecutionPromise, stopAll };
+  return {
+    create(callback: WorkerCallback, pollingIntervalMs = 500, batchSize = 1, queue: Queue) {
+      const wrappedCallback = createWrappedCallback(callback, queue);
+      const worker = Worker(wrappedCallback, pollingIntervalMs, batchSize, logger, database, queue);
+      workers.push(worker);
+      return worker;
+    },
+    getJobExecutionPromise(queueName: string) {
+      let resolvePromise: () => void;
+      const promise = new Promise<void>((resolve) => {
+        resolvePromise = resolve;
+      });
+      jobExecutionPromises[queueName] = resolvePromise!;
+      return promise;
+    },
+    stopAll() {
+      return Promise.all(workers.map((worker) => worker.stop()));
+    },
+  };
 
   function createWrappedCallback(callback: WorkerCallback, queue: Queue) {
     return async function (...args: Parameters<typeof callback>): Promise<void> {
