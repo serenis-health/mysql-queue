@@ -1,5 +1,5 @@
 import { Connection, createPool, PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
-import { DbAddJobsParams, DbCreateQueueParams, DbUpdateQueueParams } from "./types";
+import { DbAddJobsParams, DbCreateQueueParams, DbUpdateQueueParams, Connection as ExternalConnection } from "./types";
 import { Logger } from "./logger";
 
 const TABLES_NAME_PREFIX = "mysql_queue_";
@@ -57,13 +57,13 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
   }
 
   return {
-    async addJobs(queueName: string, params: Omit<DbAddJobsParams, "queueId">[], connection?: Connection) {
+    async addJobs(queueName: string, params: Omit<DbAddJobsParams, "queueId">[], connection?: ExternalConnection) {
       if (params.length === 0) return;
 
-      async function query(conn: Connection) {
+      async function query(conn: Connection | ExternalConnection) {
         const values = params.flatMap((job) => [job.id, job.name, job.payload, job.status, job.priority, job.startAfter]);
 
-        const [{ affectedRows }] = await conn.query<ResultSetHeader>(
+        const result = await conn.query<ResultSetHeader>(
           `INSERT INTO ${jobsTable()} (id, name, payload, status, priority, startAfter, queueId)
            SELECT j.*, q.id
            FROM (SELECT ? AS id, ? AS name, ? AS payload, ? AS status, ? AS priority, ? AS startAfter ${params
@@ -73,7 +73,8 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
           JOIN ${queuesTable()} q ON q.name = ?`,
           [...values, queueName],
         );
-        if (affectedRows === 0) throw new Error("Failed to add jobs, maybe queue does not exist");
+        if (Array.isArray(result) ? result[0].affectedRows === 0 : result.affectedRows === 0)
+          throw new Error("Failed to add jobs, maybe queue does not exist");
       }
 
       await (connection ? query(connection) : withConnection(query));

@@ -1,5 +1,5 @@
-import { Connection } from "mysql2/promise";
 import { LevelWithSilentOrString } from "pino";
+import { Connection as Mysql2Connection } from "mysql2/promise";
 
 export interface Options {
   dbUri: string;
@@ -40,7 +40,7 @@ export interface JobForInsert {
   startAfter: Date | null;
 }
 
-export type WorkerCallback = (job: Job, signal: AbortSignal, connection: Connection) => Promise<void> | void;
+export type WorkerCallback = (job: Job, signal: AbortSignal, connection: Mysql2Connection) => Promise<void> | void;
 
 export interface UpsertQueueParams {
   maxRetries?: number;
@@ -65,3 +65,8 @@ export type EnqueueParams = AddParams | AddParams[];
 export type DbCreateQueueParams = Queue;
 export type DbUpdateQueueParams = Queue;
 export type DbAddJobsParams = JobForInsert;
+
+export interface Connection {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: (sql: string, values?: any[]) => Promise<{ affectedRows: number }>;
+}

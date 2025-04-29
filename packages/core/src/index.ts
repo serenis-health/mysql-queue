@@ -1,5 +1,4 @@
-import { EnqueueParams, JobForInsert, Options, Queue, RetrieveQueueParams, UpsertQueueParams, WorkerCallback } from "./types";
-import { Connection } from "mysql2/promise";
+import { Connection, EnqueueParams, JobForInsert, Options, Queue, RetrieveQueueParams, UpsertQueueParams, WorkerCallback } from "./types";
 import { Database } from "./database";
 import { Logger } from "./logger";
 import { randomUUID } from "node:crypto";

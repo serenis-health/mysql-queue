@@ -1,8 +1,10 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Connection } from "../src/types";
+import { createPool } from "mysql2/promise";
 import { MysqlQueue } from "../src";
 import { QueryDatabase } from "./utils/queryDatabase";
 import { randomUUID } from "node:crypto";
-import { RowDataPacket } from "mysql2";
+import { ResultSetHeader, RowDataPacket } from "mysql2";
 
 const dbUri = "mysql://root:password@localhost:3306/serenis";
 
@@ -148,6 +150,34 @@ describe("mysqlQueue", () => {
         startAfter: null,
         status: "pending",
       });
+    });
+
+    it("should create a row in mysql_queue_jobs case external connection", async () => {
+      const pool = createPool(dbUri);
+      const connection = await pool.getConnection();
+
+      const externalConnectionMock = vi.fn();
+      const externalConnection: Connection = {
+        query: async (query: string, values?: unknown[]) => {
+          const result = await connection.query<ResultSetHeader>(query, values);
+          externalConnectionMock(query, values, result);
+          return { affectedRows: result[0].affectedRows };
+        },
+      };
+
+      const { jobIds } = await instance.enqueue(
+        queueName,
+        {
+          name: "test_job",
+          payload: { message: "Hello, world!" },
+        },
+        externalConnection,
+      );
+
+      const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.jobsTable()};`);
+      expect(row.id).toEqual(jobIds[0]);
+
+      expect(externalConnectionMock).toHaveBeenCalled();
     });
 
     it("should throw case queue not exists", async () => {
