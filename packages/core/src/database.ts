@@ -7,7 +7,7 @@ const TABLES_NAME_PREFIX = "mysql_queue_";
 export type Database = ReturnType<typeof Database>;
 
 export function Database(logger: Logger, options: { uri: string; tablesPrefix?: string }) {
-  const pool = createPool({ uri: options.uri, waitForConnections: true });
+  const pool = createPool({ timezone: "Z", uri: options.uri, waitForConnections: true });
 
   const migrations = [
     {
