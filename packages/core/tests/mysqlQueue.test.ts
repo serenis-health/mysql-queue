@@ -179,6 +179,47 @@ describe("mysqlQueue", () => {
       expect(workerCbMock).toHaveBeenCalledWith(expect.objectContaining({ id: jobIds[0] }), expect.anything(), expect.anything());
     });
   });
+
+  describe("work", () => {
+    const queueName = "test_queue";
+
+    beforeEach(async () => {
+      await instance.initialize();
+      await instance.upsertQueue(queueName, { maxRetries: 1 });
+    });
+
+    afterEach(async () => {
+      await instance.destroy();
+    });
+
+    it("should fail job after attempts", async () => {
+      const promise = instance.getJobExecutionPromise(queueName);
+
+      const workerCbMock = vi.fn().mockImplementation(() => {
+        throw new Error("a".repeat(120));
+      });
+      const worker = await instance.work(queueName, workerCbMock);
+
+      await instance.enqueue(queueName, {
+        name: "test_job",
+        payload: {},
+      });
+
+      void worker.start();
+      await promise;
+
+      await new Promise<void>((r) => setTimeout(() => r(), 500));
+      const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.jobsTable()}`);
+      expect(row).toMatchObject({
+        attempts: 1,
+        failedAt: expect.any(Date),
+        latestFailureReason: expect.stringContaining("<truncated>"),
+        status: "failed",
+      });
+
+      await worker.stop();
+    });
+  });
 });
 
 function isValidUUID(uuid: string): boolean {

@@ -53,7 +53,7 @@ export function JobProcessor(database: Database, logger: Logger, queue: Queue, c
         const startAfter = queue.backoffMultiplier
           ? new Date(now + queue.minDelayMs * Math.pow(queue.backoffMultiplier, job.attempts))
           : new Date(now + queue.minDelayMs);
-        await database.incrementJobAttempts(connection, job.id, typedError.message, job.attempts, startAfter);
+        await database.incrementJobAttempts(connection, job.id, truncateStr(typedError.message, 85), job.attempts, startAfter);
         logger.warn(
           {
             error: errorToJson(typedError),
@@ -64,7 +64,7 @@ export function JobProcessor(database: Database, logger: Logger, queue: Queue, c
           `jobProcessor.process.failed`,
         );
       } else {
-        await database.markJobAsFailed(connection, job.id, typedError.message, job.attempts);
+        await database.markJobAsFailed(connection, job.id, truncateStr(typedError.message, 85), job.attempts);
         logger.error({ error: errorToJson(typedError), jobId: job.id }, `jobProcessor.process.failedAfterAttempts`);
       }
     }
@@ -105,4 +105,11 @@ function errorToJson(error: Error) {
     name: error.name,
     stack: error.stack,
   };
+}
+
+function truncateStr(string: string, length: number) {
+  if (string.length <= length) {
+    return string;
+  }
+  return `${string.slice(0, length)} <truncated>`;
 }
