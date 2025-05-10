@@ -1,5 +1,4 @@
-import { EnqueueParams, JobForInsert, Options, Queue, RetrieveQueueParams, UpsertQueueParams, WorkerCallback } from "./types";
-import { Connection } from "mysql2/promise";
+import { EnqueueParams, JobForInsert, Options, Queue, RetrieveQueueParams, Session, UpsertQueueParams, WorkerCallback } from "./types";
 import { Database } from "./database";
 import { Logger } from "./logger";
 import { randomUUID } from "node:crypto";
@@ -37,7 +36,7 @@ export function MysqlQueue(options: Options) {
       logger.flush();
     },
 
-    async enqueue(queueName: string, params: EnqueueParams, connection?: Connection) {
+    async enqueue(queueName: string, params: EnqueueParams, session?: Session) {
       const jobsForInsert: JobForInsert[] = (Array.isArray(params) ? params : [params]).map((p) => ({
         id: randomUUID(),
         name: p.name,
@@ -47,7 +46,7 @@ export function MysqlQueue(options: Options) {
         status: "pending",
       }));
 
-      await database.addJobs(queueName, jobsForInsert, connection);
+      await database.addJobs(queueName, jobsForInsert, session);
       logger.info({ jobs: jobsForInsert }, "jobsAddedToQueue");
       return { jobIds: jobsForInsert.map((j) => j.id) };
     },

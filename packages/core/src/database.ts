@@ -1,5 +1,5 @@
-import { Connection, createPool, PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
-import { DbAddJobsParams, DbCreateQueueParams, DbUpdateQueueParams } from "./types";
+import { createPool, PoolConnection, RowDataPacket } from "mysql2/promise";
+import { DbAddJobsParams, DbCreateQueueParams, DbUpdateQueueParams, Session } from "./types";
 import { Logger } from "./logger";
 
 const TABLES_NAME_PREFIX = "mysql_queue_";
@@ -47,7 +47,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     },
   ];
 
-  async function withConnection<T>(cb: (connection: PoolConnection) => Promise<T>) {
+  async function runWithPoolConnection<T>(cb: (connection: PoolConnection) => Promise<T>) {
     const connection = await pool.getConnection();
     try {
       return await cb(connection);
@@ -57,29 +57,23 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
   }
 
   return {
-    async addJobs(queueName: string, params: Omit<DbAddJobsParams, "queueId">[], connection?: Connection) {
+    async addJobs(queueName: string, params: Omit<DbAddJobsParams, "queueId">[], session?: Session) {
       if (params.length === 0) return;
+      const values = [...params.flatMap((job) => [job.id, job.name, job.payload, job.status, job.priority, job.startAfter]), queueName];
+      const sql = `INSERT INTO ${jobsTable()} (id, name, payload, status, priority, startAfter, queueId) SELECT j.*, q.id FROM (SELECT ? AS id, ? AS name, ? AS payload, ? AS status, ? AS priority, ? AS startAfter ${params
+        .slice(1)
+        .map(() => "UNION ALL SELECT ?, ?, ?, ?, ?, ?")
+        .join(" ")}) AS j JOIN ${queuesTable()} q ON q.name = ?`;
 
-      async function query(conn: Connection) {
-        const values = params.flatMap((job) => [job.id, job.name, job.payload, job.status, job.priority, job.startAfter]);
+      const result: object[] = session ? await session.query(sql, values) : await runWithPoolConnection((c) => c.query(sql, values));
 
-        const [{ affectedRows }] = await conn.query<ResultSetHeader>(
-          `INSERT INTO ${jobsTable()} (id, name, payload, status, priority, startAfter, queueId)
-           SELECT j.*, q.id
-           FROM (SELECT ? AS id, ? AS name, ? AS payload, ? AS status, ? AS priority, ? AS startAfter ${params
-             .slice(1)
-             .map(() => "UNION ALL SELECT ?, ?, ?, ?, ?, ?")
-             .join(" ")}) AS j
-          JOIN ${queuesTable()} q ON q.name = ?`,
-          [...values, queueName],
-        );
-        if (affectedRows === 0) throw new Error("Failed to add jobs, maybe queue does not exist");
-      }
-
-      await (connection ? query(connection) : withConnection(query));
+      if (!Array.isArray(result)) throw new Error("Session did not return an array");
+      if (result.length === 0) throw new Error("Session returned an empty array");
+      if (!("affectedRows" in result[0])) throw new Error("Session did not return affected rows");
+      if (result[0].affectedRows === 0) throw new Error("Unable to add jobs, maybe queue does not exist");
     },
     async createQueue(params: DbCreateQueueParams) {
-      await withConnection((connection) => {
+      await runWithPoolConnection((connection) => {
         return connection.query(
           `INSERT INTO ${queuesTable()} (id, name, maxRetries, minDelayMs, backoffMultiplier, maxDurationMs) VALUES (?, ?, ?, ?, ?, ?)`,
           [params.id, params.name, params.maxRetries, params.minDelayMs, params.backoffMultiplier, params.maxDurationMs],
@@ -90,13 +84,13 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       await pool.end();
     },
     async getJobById(jobId: string) {
-      const [rows] = await withConnection((connection) =>
+      const [rows] = await runWithPoolConnection((connection) =>
         connection.query<RowDataPacket[]>(`SELECT * FROM ${jobsTable()} WHERE id = ?`, [jobId]),
       );
       return rows.length ? rows[0] : null;
     },
     async getPendingJobs(queueId: string, batchSize: number) {
-      const [rows] = await withConnection((connection) =>
+      const [rows] = await runWithPoolConnection((connection) =>
         connection.query<RowDataPacket[]>(
           `SELECT * FROM ${jobsTable()} WHERE status = ? AND queueId = ? AND (startAfter IS NULL OR startAfter <= ?) ORDER BY priority ASC, createdAt ASC LIMIT ? FOR UPDATE SKIP LOCKED`,
           ["pending", queueId, new Date(), batchSize],
@@ -105,13 +99,13 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       return rows;
     },
     async getQueueByName(name: string) {
-      const [rows] = await withConnection((connection) =>
+      const [rows] = await runWithPoolConnection((connection) =>
         connection.query<RowDataPacket[]>(`SELECT * FROM ${queuesTable()} WHERE name = ?`, [name]),
       );
       return rows.length ? rows[0] : null;
     },
     async getQueueIdByName(name: string) {
-      const [rows] = await withConnection((connection) =>
+      const [rows] = await runWithPoolConnection((connection) =>
         connection.query<RowDataPacket[]>(`SELECT id FROM ${queuesTable()} WHERE name = ?`, [name]),
       );
       return rows.length ? (rows[0] as { id: string }) : null;
@@ -204,15 +198,15 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       }
       logger.info("Migrations completed");
     },
+    runWithPoolConnection,
     async updateQueue(params: DbUpdateQueueParams) {
-      await withConnection((connection) => {
+      await runWithPoolConnection((connection) => {
         return connection.query(
           `UPDATE ${queuesTable()} SET maxRetries = ?, minDelayMs = ?, backoffMultiplier = ?, maxDurationMs = ? WHERE id = ?`,
           [params.maxRetries, params.minDelayMs, params.backoffMultiplier, params.maxDurationMs, params.id],
         );
       });
     },
-    withConnection,
   };
 
   function migrationsTable() {
