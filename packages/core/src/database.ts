@@ -1,5 +1,5 @@
-import { Connection, createPool, PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
-import { DbAddJobsParams, DbCreateQueueParams, DbUpdateQueueParams } from "./types";
+import { createPool, PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
+import { DbAddJobsParams, DbCreateQueueParams, DbUpdateQueueParams, ExternalDb } from "./types";
 import { Logger } from "./logger";
 
 const TABLES_NAME_PREFIX = "mysql_queue_";
@@ -57,26 +57,27 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
   }
 
   return {
-    async addJobs(queueName: string, params: Omit<DbAddJobsParams, "queueId">[], connection?: Connection) {
+    async addJobs(queueName: string, params: Omit<DbAddJobsParams, "queueId">[], externalDb?: ExternalDb) {
       if (params.length === 0) return;
+      const values = params.flatMap((job) => [job.id, job.name, job.payload, job.status, job.priority, job.startAfter]);
+      const sql = `INSERT INTO ${jobsTable()} (id, name, payload, status, priority, startAfter, queueId)
+       SELECT j.*, q.id
+       FROM (SELECT ? AS id, ? AS name, ? AS payload, ? AS status, ? AS priority, ? AS startAfter ${params
+         .slice(1)
+         .map(() => "UNION ALL SELECT ?, ?, ?, ?, ?, ?")
+         .join(" ")}) AS j
+      JOIN ${queuesTable()} q ON q.name = ?`;
 
-      async function query(conn: Connection) {
-        const values = params.flatMap((job) => [job.id, job.name, job.payload, job.status, job.priority, job.startAfter]);
-
-        const [{ affectedRows }] = await conn.query<ResultSetHeader>(
-          `INSERT INTO ${jobsTable()} (id, name, payload, status, priority, startAfter, queueId)
-           SELECT j.*, q.id
-           FROM (SELECT ? AS id, ? AS name, ? AS payload, ? AS status, ? AS priority, ? AS startAfter ${params
-             .slice(1)
-             .map(() => "UNION ALL SELECT ?, ?, ?, ?, ?, ?")
-             .join(" ")}) AS j
-          JOIN ${queuesTable()} q ON q.name = ?`,
-          [...values, queueName],
-        );
-        if (affectedRows === 0) throw new Error("Failed to add jobs, maybe queue does not exist");
+      if (externalDb) {
+        const result = await externalDb.query(sql, [...values, queueName]);
+        if (!("affectedRows" in result)) throw new Error("Failed to add jobs, db does not return affected rows");
+        if (result.affectedRows === 0) throw new Error("Failed to add jobs, maybe queue does not exist");
+      } else {
+        await withConnection(async (connection) => {
+          const [{ affectedRows }] = await connection.query<ResultSetHeader>(sql, [...values, queueName]);
+          if (affectedRows === 0) throw new Error("Failed to add jobs, maybe queue does not exist");
+        });
       }
-
-      await (connection ? query(connection) : withConnection(query));
     },
     async createQueue(params: DbCreateQueueParams) {
       await withConnection((connection) => {
