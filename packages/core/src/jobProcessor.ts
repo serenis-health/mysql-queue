@@ -5,7 +5,7 @@ import { PoolConnection } from "mysql2/promise";
 
 export function JobProcessor(database: Database, logger: Logger, queue: Queue, callback: WorkerCallback) {
   async function process(job: Job, workerAbortSignal: AbortSignal) {
-    await database.withConnection(async (connection) => {
+    await database.runWithPoolConnection(async (connection) => {
       await connection.beginTransaction();
       try {
         try {

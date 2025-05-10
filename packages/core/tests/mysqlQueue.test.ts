@@ -3,6 +3,7 @@ import { MysqlQueue } from "../src";
 import { QueryDatabase } from "./utils/queryDatabase";
 import { randomUUID } from "node:crypto";
 import { RowDataPacket } from "mysql2";
+import { Session } from "../src/types";
 
 const dbUri = "mysql://root:password@localhost:3306/serenis";
 
@@ -125,64 +126,145 @@ describe("mysqlQueue", () => {
       await instance.destroy();
     });
 
-    it("should create a row in mysql_queue_jobs", async () => {
-      const { jobIds } = await instance.enqueue(queueName, {
-        name: "test_job",
-        payload: { message: "Hello, world!" },
-      });
-
-      const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.jobsTable()};`);
-
-      expect(isValidUUID(jobIds[0])).toBeTruthy();
-      expect(row).toEqual({
-        attempts: 0,
-        completedAt: null,
-        createdAt: expect.any(Date),
-        failedAt: null,
-        id: expect.any(String),
-        latestFailureReason: null,
-        name: "test_job",
-        payload: { message: "Hello, world!" },
-        priority: 0,
-        queueId: expect.any(String),
-        startAfter: null,
-        status: "pending",
-      });
-    });
-
-    it("should throw case queue not exists", async () => {
-      const unknownQueueName = "anotherQueue";
-
-      await expect(
-        instance.enqueue(unknownQueueName, {
+    describe("without session", () => {
+      it("should create a row in mysql_queue_jobs", async () => {
+        const { jobIds } = await instance.enqueue(queueName, {
           name: "test_job",
           payload: { message: "Hello, world!" },
-        }),
-      ).rejects.toThrowError("Failed to add jobs, maybe queue does not exist");
-    });
+        });
 
-    it("should not throw case 0 jobs params passed", async () => {
-      await instance.enqueue(queueName, []);
-      const sql = instance.getEnqueueRawSql(queueName, []);
-      expect(sql).toEqual("SELECT NULL LIMIT 0;");
-    });
+        const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.jobsTable()};`);
 
-    it("should fire the worker callback", async () => {
-      const promise = instance.getJobExecutionPromise(queueName);
-
-      const workerCbMock = vi.fn();
-      const worker = await instance.work(queueName, workerCbMock);
-
-      const { jobIds } = await instance.enqueue(queueName, {
-        name: "test_job",
-        payload: { message: "Hello, world!" },
+        expect(isValidUUID(jobIds[0])).toBeTruthy();
+        expect(row).toEqual({
+          attempts: 0,
+          completedAt: null,
+          createdAt: expect.any(Date),
+          failedAt: null,
+          id: expect.any(String),
+          latestFailureReason: null,
+          name: "test_job",
+          payload: { message: "Hello, world!" },
+          priority: 0,
+          queueId: expect.any(String),
+          startAfter: null,
+          status: "pending",
+        });
       });
 
-      void worker.start();
-      await promise;
+      it("should throw case queue not exists", async () => {
+        const unknownQueueName = "anotherQueue";
 
-      await worker.stop();
-      expect(workerCbMock).toHaveBeenCalledWith(expect.objectContaining({ id: jobIds[0] }), expect.anything(), expect.anything());
+        await expect(
+          instance.enqueue(unknownQueueName, {
+            name: "test_job",
+            payload: { message: "Hello, world!" },
+          }),
+        ).rejects.toThrowError("Unable to add jobs, maybe queue does not exist");
+      });
+
+      it("should not throw case 0 jobs params passed", async () => {
+        await instance.enqueue(queueName, []);
+        const sql = instance.getEnqueueRawSql(queueName, []);
+        expect(sql).toEqual("SELECT NULL LIMIT 0;");
+      });
+
+      it("should fire the worker callback", async () => {
+        const promise = instance.getJobExecutionPromise(queueName);
+
+        const workerCbMock = vi.fn();
+        const worker = await instance.work(queueName, workerCbMock);
+
+        const { jobIds } = await instance.enqueue(queueName, {
+          name: "test_job",
+          payload: { message: "Hello, world!" },
+        });
+
+        void worker.start();
+        await promise;
+
+        await worker.stop();
+        expect(workerCbMock).toHaveBeenCalledWith(expect.objectContaining({ id: jobIds[0] }), expect.anything(), expect.anything());
+      });
+    });
+
+    describe("with session", () => {
+      const session: Session = {
+        async query(sql, paramteres) {
+          const connection = await queryDatabase.pool.getConnection();
+          const result = await connection.query(sql, paramteres);
+          connection.release();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          return [{ affectedRows: (result[0] as any).affectedRows }];
+        },
+      };
+
+      it("should create a row in mysql_queue_jobs", async () => {
+        const { jobIds } = await instance.enqueue(
+          queueName,
+          {
+            name: "test_job",
+            payload: { message: "Hello, world!" },
+          },
+          session,
+        );
+
+        const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.jobsTable()};`);
+
+        expect(isValidUUID(jobIds[0])).toBeTruthy();
+        expect(row).toEqual({
+          attempts: 0,
+          completedAt: null,
+          createdAt: expect.any(Date),
+          failedAt: null,
+          id: expect.any(String),
+          latestFailureReason: null,
+          name: "test_job",
+          payload: { message: "Hello, world!" },
+          priority: 0,
+          queueId: expect.any(String),
+          startAfter: null,
+          status: "pending",
+        });
+      });
+
+      it("should throw case queue not exists", async () => {
+        const unknownQueueName = "anotherQueue";
+
+        await expect(
+          instance.enqueue(
+            unknownQueueName,
+            {
+              name: "test_job",
+              payload: { message: "Hello, world!" },
+            },
+            session,
+          ),
+        ).rejects.toThrowError("Unable to add jobs, maybe queue does not exist");
+      });
+
+      it("should throw case session not return affectedRows", async () => {
+        const wrongSession: Session = {
+          async query(sql, parameters) {
+            const connection = await queryDatabase.pool.getConnection();
+            await connection.query(sql, parameters);
+            connection.release();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            return [{} as any];
+          },
+        };
+
+        await expect(
+          instance.enqueue(
+            queueName,
+            {
+              name: "test_job",
+              payload: { message: "Hello, world!" },
+            },
+            wrongSession,
+          ),
+        ).rejects.toThrowError("Session did not return affected rows");
+      });
     });
   });
 

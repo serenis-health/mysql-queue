@@ -65,3 +65,7 @@ export type EnqueueParams = AddParams | AddParams[];
 export type DbCreateQueueParams = Queue;
 export type DbUpdateQueueParams = Queue;
 export type DbAddJobsParams = JobForInsert;
+
+export type Session = {
+  query: (sql: string, parameters: unknown[]) => Promise<[{ affectedRows: number }]>;
+};
