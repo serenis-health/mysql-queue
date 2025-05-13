@@ -161,6 +161,12 @@ describe("mysqlQueue", () => {
       ).rejects.toThrowError("Failed to add jobs, maybe queue does not exist");
     });
 
+    it("should not throw case 0 jobs params passed", async () => {
+      await instance.enqueue(queueName, []);
+      const sql = instance.getEnqueueRawSql(queueName, []);
+      expect(sql).toEqual("SELECT NULL LIMIT 0;");
+    });
+
     it("should fire the worker callback", async () => {
       const promise = instance.getJobExecutionPromise(queueName);
 

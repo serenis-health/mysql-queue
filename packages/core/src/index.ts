@@ -60,6 +60,7 @@ export function MysqlQueue(options: Options) {
         startAfter: p.startAfter || null,
         status: "pending",
       }));
+      if (jobsForInsert.length === 0) return "SELECT NULL LIMIT 0;";
 
       const values = jobsForInsert
         .map(
