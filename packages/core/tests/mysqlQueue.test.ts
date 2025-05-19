@@ -186,6 +186,24 @@ describe("mysqlQueue", () => {
         await worker.stop();
         expect(workerCbMock).toHaveBeenCalledWith(expect.objectContaining({ id: jobIds[0] }), expect.anything(), expect.anything());
       });
+
+      it("should fire the worker callback two jobs", async () => {
+        const promise = instance.getJobExecutionPromise(queueName, 2);
+
+        const workerCbMock = vi.fn();
+        const worker = await instance.work(queueName, workerCbMock);
+
+        await instance.enqueue(queueName, [
+          { name: "test_job", payload: {} },
+          { name: "test_job", payload: {} },
+        ]);
+
+        void worker.start();
+        await promise;
+
+        await worker.stop();
+        expect(workerCbMock).toHaveBeenCalledTimes(2);
+      });
     });
 
     describe("with session", () => {
