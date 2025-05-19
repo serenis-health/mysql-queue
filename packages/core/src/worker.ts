@@ -5,7 +5,7 @@ import { Logger } from "./logger";
 import { randomUUID } from "node:crypto";
 
 export function WorkersFactory(logger: Logger, database: Database) {
-  const jobExecutionPromises: Record<string, (job: Job) => void> = {};
+  const jobExecutionTrackers: Record<string, { remaining: number; promise: (job: Job) => void }> = {};
   const workers: Worker[] = [];
 
   return {
@@ -15,12 +15,12 @@ export function WorkersFactory(logger: Logger, database: Database) {
       workers.push(worker);
       return worker;
     },
-    getJobExecutionPromise(queueName: string) {
+    getJobExecutionPromise(queueName: string, count = 1) {
       let resolvePromise: () => void;
       const promise = new Promise<void>((resolve) => {
         resolvePromise = resolve;
       });
-      jobExecutionPromises[queueName] = resolvePromise!;
+      jobExecutionTrackers[queueName] = { promise: resolvePromise!, remaining: count };
       return promise;
     },
     stopAll() {
@@ -33,9 +33,14 @@ export function WorkersFactory(logger: Logger, database: Database) {
       try {
         await callback(...args);
       } finally {
-        if (jobExecutionPromises[queue.name]) {
-          jobExecutionPromises[queue.name](args[0]);
-          logger.debug({ queueName: queue.name }, "workers.jobExecutionPromiseResolved");
+        const tracker = jobExecutionTrackers[queue.name];
+        if (tracker) {
+          tracker.remaining -= 1;
+          logger.debug({ queueName: queue.name, remaining: tracker.remaining }, "workers.jobExecutionPromiseTick");
+          if (tracker.remaining <= 0) {
+            tracker.promise(args[0]);
+            logger.debug({ queueName: queue.name }, "workers.jobExecutionPromiseResolved");
+          }
         }
       }
     };
