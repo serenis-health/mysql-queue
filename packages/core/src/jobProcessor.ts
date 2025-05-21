@@ -24,11 +24,14 @@ export function JobProcessor(database: Database, logger: Logger, queue: Queue, c
     async function executeCallbackWithTimeout(connection: PoolConnection) {
       const callbackAbortController = new AbortController();
       let timeoutId: NodeJS.Timeout;
-      workerAbortSignal.addEventListener("abort", () => {
+
+      function onWorkerAbortSignal() {
         callbackAbortController.abort();
         clearTimeout(timeoutId);
         logger.debug({ jobId: job.id }, `jobProcessor.process.abortedDueWorkerAbort`);
-      });
+      }
+
+      workerAbortSignal.addEventListener("abort", onWorkerAbortSignal);
 
       const callbackPromise = callback(job, callbackAbortController.signal, connection);
       const timeoutPromise = new Promise((_, reject) => {
@@ -39,7 +42,10 @@ export function JobProcessor(database: Database, logger: Logger, queue: Queue, c
         }, queue.maxDurationMs);
       });
 
-      await Promise.race([callbackPromise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+      await Promise.race([callbackPromise, timeoutPromise]).finally(() => {
+        clearTimeout(timeoutId);
+        workerAbortSignal.removeEventListener("abort", onWorkerAbortSignal);
+      });
       await database.markJobAsCompleted(connection, job.id, job.attempts);
 
       logger.info({ jobId: job.id }, `jobProcessor.process.completed`);
