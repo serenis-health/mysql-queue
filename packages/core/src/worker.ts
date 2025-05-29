@@ -64,11 +64,6 @@ export function Worker(callback: WorkerCallback, pollingIntervalMs = 500, batchS
   });
 
   return {
-    async process(jobId: string) {
-      const job = (await database.getJobById(jobId)) as Job;
-
-      await jobProcessor.process(job, signal);
-    },
     async start() {
       wLogger.info({ batchSize, pollingIntervalMs }, `worker.starting`);
 
