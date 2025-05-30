@@ -47,7 +47,8 @@ export function MysqlQueue(options: Options) {
       }));
 
       await database.addJobs(queueName, jobsForInsert, session);
-      logger.info({ jobs: jobsForInsert }, "jobsAddedToQueue");
+      logger.debug({ jobs: jobsForInsert }, "enqueue.jobsAddedToQueue");
+      logger.info({ jobCount: jobsForInsert.length }, "enqueue.jobsAddedToQueue");
       return { jobIds: jobsForInsert.map((j) => j.id) };
     },
     getEnqueueRawSql(queueName: string, params: EnqueueParams) {

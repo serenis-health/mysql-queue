@@ -1,5 +1,6 @@
 import { Job, Queue, WorkerCallback } from "./types";
 import { Database } from "./database";
+import { errorToJson } from "./utils";
 import { JobProcessor } from "./jobProcessor";
 import { Logger } from "./logger";
 import { randomUUID } from "node:crypto";
@@ -68,8 +69,13 @@ export function Worker(callback: WorkerCallback, pollingIntervalMs = 500, batchS
       wLogger.info({ batchSize, pollingIntervalMs }, `worker.starting`);
 
       while (!signal.aborted) {
-        await jobProcessor.processBatch(batchSize, signal);
-        await sleep(pollingIntervalMs);
+        try {
+          await jobProcessor.processBatch(batchSize, signal);
+          await sleep(pollingIntervalMs);
+        } catch (error) {
+          const typedError = error as Error;
+          wLogger.error({ error: errorToJson(typedError) }, `worker.loop.error`);
+        }
       }
       stopPromiseResolve?.();
       wLogger.debug(`worker.aborted`);
