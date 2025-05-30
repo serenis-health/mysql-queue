@@ -1,4 +1,3 @@
-import { Connection } from "mysql2/promise";
 import { LevelWithSilentOrString } from "pino";
 
 export interface Options {
@@ -40,7 +39,7 @@ export interface JobForInsert {
   startAfter: Date | null;
 }
 
-export type WorkerCallback = (job: Job, signal: AbortSignal, connection: Connection) => Promise<void> | void;
+export type WorkerCallback = (job: Job, signal: AbortSignal, session: Session) => Promise<void> | void;
 
 export interface UpsertQueueParams {
   maxRetries?: number;

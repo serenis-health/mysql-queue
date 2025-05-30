@@ -1,5 +1,5 @@
 import { errorToJson, truncateStr } from "./utils";
-import { Job, Queue, WorkerCallback } from "./types";
+import { Job, Queue, Session, WorkerCallback } from "./types";
 import { Database } from "./database";
 import { Logger } from "./logger";
 import { PoolConnection } from "mysql2/promise";
@@ -63,7 +63,7 @@ export function JobProcessor(database: Database, logger: Logger, queue: Queue, c
     }
     workerAbortSignal.addEventListener("abort", onWorkerAbort);
 
-    const callbackPromise = callback(job, callbackAbortController.signal, connection);
+    const callbackPromise = callback(job, callbackAbortController.signal, connection as unknown as Session);
     const timeoutPromise = new Promise((_, reject) => {
       timeoutId = setTimeout(() => {
         callbackAbortController.abort();
