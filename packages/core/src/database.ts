@@ -89,12 +89,10 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       );
       return rows.length ? rows[0] : null;
     },
-    async getPendingJobs(queueId: string, batchSize: number) {
-      const [rows] = await runWithPoolConnection((connection) =>
-        connection.query<RowDataPacket[]>(
-          `SELECT * FROM ${jobsTable()} WHERE status = ? AND queueId = ? AND (startAfter IS NULL OR startAfter <= ?) ORDER BY priority ASC, createdAt ASC LIMIT ? FOR UPDATE SKIP LOCKED`,
-          ["pending", queueId, new Date(), batchSize],
-        ),
+    async getPendingJobs(connection: PoolConnection, queueId: string, batchSize: number) {
+      const [rows] = await connection.query<RowDataPacket[]>(
+        `SELECT * FROM ${jobsTable()} WHERE status = ? AND queueId = ? AND (startAfter IS NULL OR startAfter <= ?) ORDER BY priority ASC, createdAt ASC LIMIT ? FOR UPDATE SKIP LOCKED`,
+        ["pending", queueId, new Date(), batchSize],
       );
       return rows;
     },

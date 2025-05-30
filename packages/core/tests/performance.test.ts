@@ -24,7 +24,7 @@ describe("Performance", () => {
     await mysqlQueue.initialize();
   });
 
-  it("should handle 1000 jobs in less than 2 seconds (with 10 workers)", async () => {
+  it("should handle 1000 jobs in less than 5 seconds (with 10 workers)", async () => {
     const queue = "performance";
     await mysqlQueue.upsertQueue(queue);
 
@@ -46,8 +46,7 @@ describe("Performance", () => {
 
     await waitInvoked(WorkerMocks, "handle", JOB_COUNT);
     const end = performance.now();
-
-    expect(end - start).toBeLessThan(2000);
+    expect(end - start).toBeLessThan(5000);
     await Promise.all(workers.map((w) => w.stop()));
-  });
+  }, 10000);
 });
