@@ -2,6 +2,7 @@ import { LevelWithSilentOrString } from "pino";
 
 export interface Options {
   dbUri: string;
+  maxPayloadSizeKb?: number;
   loggingLevel?: LevelWithSilentOrString;
   loggingPrettyPrint?: boolean;
   tablesPrefix?: string;
