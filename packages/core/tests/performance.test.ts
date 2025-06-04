@@ -12,6 +12,7 @@ describe("Performance", () => {
   };
   const mysqlQueue = MysqlQueue({
     dbUri: "mysql://root:password@localhost:3306/serenis",
+    loggingLevel: "fatal",
     tablesPrefix: `${randomUUID().slice(-4)}_`,
   });
 
