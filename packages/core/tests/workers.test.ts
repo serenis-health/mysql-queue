@@ -13,7 +13,7 @@ describe("workers", () => {
   beforeEach(async () => {
     mysqlQueue = MysqlQueue({
       dbUri: DB_URI,
-      // loggingLevel: "fatal",
+      loggingLevel: "fatal",
       tablesPrefix: `${randomUUID().slice(-4)}_`,
     });
     await mysqlQueue.initialize();
@@ -62,7 +62,7 @@ describe("workers", () => {
 
       await promise;
 
-      await sleep(500);
+      await sleep(500); //TODO remove
       const [rows] = await pool.query<RowDataPacket[]>(`SELECT id, createdAt, completedAt from ${mysqlQueue.jobsTable()}`);
       const jobs = rows.map((j) => ({ ...j, durationMs: new Date(j.completedAt).getTime() - new Date(j.createdAt).getTime() }));
       expect(hasExactly(jobs, 5, (item) => item.durationMs > 3000)).toBeTruthy();
@@ -76,7 +76,7 @@ describe("workers", () => {
 
       await promise;
 
-      await sleep(500);
+      await sleep(500); //TODO remove
       const [rows] = await pool.query<RowDataPacket[]>(`SELECT id, createdAt, completedAt from ${mysqlQueue.jobsTable()}`);
       const jobs = rows.map((j) => ({ ...j, durationMs: new Date(j.completedAt).getTime() - new Date(j.createdAt).getTime() }));
       expect(hasExactly(jobs, 5, (item) => item.durationMs > 3000)).toBeTruthy();
@@ -101,7 +101,7 @@ describe("workers", () => {
       };
       const queueName = "test_queue2";
       await mysqlQueue.upsertQueue(queueName, { backoffMultiplier: 2, maxRetries: 4 });
-      worker = await mysqlQueue.work(queueName, Worker1HandlerMock.handle, undefined, 5);
+      worker = await mysqlQueue.work(queueName, Worker1HandlerMock.handle);
       void worker.start();
       const promise = mysqlQueue.getJobExecutionPromise(queueName, 4);
 
@@ -111,6 +111,30 @@ describe("workers", () => {
       const expected = [0, 1032, 3064, 7135];
       callsToTimeFromFirst(calls).forEach((ms, i) => {
         expect(approxEqual(ms, expected[i], 100)).toBeTruthy();
+      });
+    }, 10_000);
+
+    it("should abort handling if handler exceeds max duration", async () => {
+      const Worker1HandlerMock = {
+        handle: vitest.fn().mockImplementation(async () => {
+          await sleep(2000);
+        }),
+      };
+      const queueName = "test_queue";
+      await mysqlQueue.upsertQueue(queueName, { maxDurationMs: 1000, maxRetries: 1 });
+      worker = await mysqlQueue.work(queueName, Worker1HandlerMock.handle);
+      void worker.start();
+      const promise = mysqlQueue.getJobExecutionPromise(queueName, 1);
+
+      await enqueueNJobs(mysqlQueue, queueName, 1);
+      await promise;
+
+      await sleep(500); //TODO remove
+      const [rows] = await pool.query<RowDataPacket[]>(`SELECT * from ${mysqlQueue.jobsTable()}`);
+      expect(rows[0]).toMatchObject({
+        failedAt: expect.any(Date),
+        latestFailureReason: "Job execution exceed the timeout of 1000",
+        status: "failed",
       });
     }, 10_000);
   });
