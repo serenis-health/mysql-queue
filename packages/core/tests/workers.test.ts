@@ -7,18 +7,16 @@ const DB_URI = "mysql://root:password@localhost:3306/serenis";
 
 describe("workers", () => {
   const pool = createPool(DB_URI);
-  const queueName = "test_queue";
 
   let mysqlQueue: MysqlQueue;
 
   beforeEach(async () => {
     mysqlQueue = MysqlQueue({
       dbUri: DB_URI,
-      loggingLevel: "fatal",
+      // loggingLevel: "fatal",
       tablesPrefix: `${randomUUID().slice(-4)}_`,
     });
     await mysqlQueue.initialize();
-    await mysqlQueue.upsertQueue(queueName, { maxDurationMs: 10_000 });
   });
 
   afterEach(async () => {
@@ -27,12 +25,14 @@ describe("workers", () => {
   });
 
   describe("two worker with different handler latency", () => {
+    const queueName = "test_queue";
     const Worker1HandlerMock = { handle: vitest.fn().mockImplementation(async () => await sleep(3000)) };
     const Worker2HandlerMock = { handle: vitest.fn() };
     let worker1: Awaited<ReturnType<typeof mysqlQueue.work>>;
     let worker2: Awaited<ReturnType<typeof mysqlQueue.work>>;
 
     beforeEach(async () => {
+      await mysqlQueue.upsertQueue(queueName, { maxDurationMs: 10_000 });
       worker1 = await mysqlQueue.work(queueName, Worker1HandlerMock.handle, undefined, 5);
       worker2 = await mysqlQueue.work(queueName, Worker2HandlerMock.handle, undefined, 5);
     });
@@ -83,6 +83,37 @@ describe("workers", () => {
       expect(hasExactly(jobs, 5, (item) => item.durationMs < 1000)).toBeTruthy();
     });
   });
+
+  describe("one worker with super fast handler", () => {
+    let worker: Awaited<ReturnType<typeof mysqlQueue.work>>;
+
+    afterEach(async () => {
+      await worker.stop();
+    });
+
+    it("should apply the right backoff strategy", async () => {
+      const calls: Date[] = [];
+      const Worker1HandlerMock = {
+        handle: vitest.fn().mockImplementation(() => {
+          calls.push(new Date());
+          throw new Error("Boom");
+        }),
+      };
+      const queueName = "test_queue2";
+      await mysqlQueue.upsertQueue(queueName, { backoffMultiplier: 2, maxRetries: 4 });
+      worker = await mysqlQueue.work(queueName, Worker1HandlerMock.handle, undefined, 5);
+      void worker.start();
+      const promise = mysqlQueue.getJobExecutionPromise(queueName, 4);
+
+      await enqueueNJobs(mysqlQueue, queueName, 1);
+      await promise;
+
+      const expected = [0, 1032, 3064, 7135];
+      callsToTimeFromFirst(calls).forEach((ms, i) => {
+        expect(approxEqual(ms, expected[i], 100)).toBeTruthy();
+      });
+    }, 10_000);
+  });
 });
 
 function sleep(ms: number) {
@@ -97,11 +128,21 @@ function haveNoCommonElements(arr1: unknown[], arr2: unknown[]) {
 function enqueueNJobs(mysqlQueue: MysqlQueue, queueName: string, n: number) {
   return mysqlQueue.enqueue(
     queueName,
-    Array.from({ length: n }).map((_, index) => ({ name: `job-${index}`, payload: {}, startAfter: new Date(Date.now() - 10_000) })),
+    Array.from({ length: n }).map((_, index) => ({ name: `job-${index}`, payload: {} })),
   );
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function hasExactly(arr: any[], count: number, predicate: (item: any) => boolean) {
   return arr.filter(predicate).length === count;
+}
+
+function callsToTimeFromFirst(calls: Date[]) {
+  if (calls.length === 0) return [];
+  const first = calls[0].getTime();
+  return calls.map((call) => call.getTime() - first);
+}
+
+function approxEqual(value: number, expected: number, tolerance: number) {
+  return Math.abs(value - expected) <= tolerance;
 }
