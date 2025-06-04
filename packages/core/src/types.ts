@@ -36,7 +36,7 @@ export interface JobForInsert {
   payload: unknown;
   status: "pending";
   priority: number;
-  startAfter: Date | null;
+  startAfter: Date;
 }
 
 export type WorkerCallback = (job: Job, signal: AbortSignal, session: Session) => Promise<void> | void;
@@ -63,7 +63,7 @@ export type EnqueueParams = AddParams | AddParams[];
 
 export type DbCreateQueueParams = Queue;
 export type DbUpdateQueueParams = Queue;
-export type DbAddJobsParams = JobForInsert;
+export type DbAddJobsParams = JobForInsert[];
 
 export type Session = {
   query: (sql: string, parameters: unknown[]) => Promise<[{ affectedRows: number }]>;
