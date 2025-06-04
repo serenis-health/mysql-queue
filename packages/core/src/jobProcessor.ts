@@ -1,11 +1,17 @@
 import { errorToJson, truncateStr } from "./utils";
-import { Job, Queue, Session, WorkerCallback } from "./types";
+import { Job, JobWithQueueName, Queue, Session, WorkerCallback } from "./types";
 import { Database } from "./database";
 import { Logger } from "./logger";
 import { PoolConnection } from "mysql2/promise";
 import { randomUUID } from "node:crypto";
 
-export function JobProcessor(database: Database, logger: Logger, queue: Queue, callback: WorkerCallback) {
+export function JobProcessor(
+  database: Database,
+  logger: Logger,
+  queue: Queue,
+  callback: WorkerCallback,
+  onJobProcessed?: (job: JobWithQueueName) => void,
+) {
   return {
     async processBatch(batchSize = 1, workerAbortSignal: AbortSignal) {
       if (workerAbortSignal?.aborted) {
@@ -37,6 +43,7 @@ export function JobProcessor(database: Database, logger: Logger, queue: Queue, c
           await connection.commit();
           const elapsedSeconds = (Date.now() - start) / 1000;
           logger.debug({ elapesSeconds: elapsedSeconds, jobCount, jobIds, transactionId }, `jobProcessor.processBatch.committed`);
+          jobs.forEach((j) => onJobProcessed?.({ ...j, queueName: queue.name }));
         } catch (error: unknown) {
           await connection.rollback();
           const typedError = error as Error;

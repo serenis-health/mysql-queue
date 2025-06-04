@@ -30,6 +30,8 @@ export interface Job {
   startAfter: Date | null;
 }
 
+export type JobWithQueueName = Job & { queueName: string };
+
 export interface JobForInsert {
   id: string;
   name: string;
