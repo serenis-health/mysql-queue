@@ -42,7 +42,7 @@ export function MysqlQueue(options: Options) {
         name: p.name,
         payload: JSON.stringify(p.payload),
         priority: p.priority || 0,
-        startAfter: p.startAfter || null,
+        startAfter: p.startAfter || new Date(),
         status: "pending",
       }));
 
@@ -50,28 +50,6 @@ export function MysqlQueue(options: Options) {
       logger.debug({ jobs: jobsForInsert }, "enqueue.jobsAddedToQueue");
       logger.info({ jobCount: jobsForInsert.length }, "enqueue.jobsAddedToQueue");
       return { jobIds: jobsForInsert.map((j) => j.id) };
-    },
-    getEnqueueRawSql(queueName: string, params: EnqueueParams) {
-      const jobsForInsert: JobForInsert[] = (Array.isArray(params) ? params : [params]).map((p) => ({
-        id: randomUUID(),
-        name: p.name,
-        payload: JSON.stringify(p.payload),
-        priority: p.priority || 0,
-        startAfter: p.startAfter || null,
-        status: "pending",
-      }));
-      if (jobsForInsert.length === 0) return "SELECT NULL LIMIT 0;";
-
-      const values = jobsForInsert
-        .map(
-          (job) =>
-            `SELECT '${job.id}', '${job.name}', '${job.payload}', '${job.status}', '${job.priority}', ${
-              job.startAfter ? `'${job.startAfter.toISOString().slice(0, 19).replace("T", " ")}'` : "NULL"
-            }`,
-        )
-        .join(" UNION ALL ");
-
-      return `INSERT INTO ${database.jobsTable()} (id, name, payload, status, priority, startAfter, queueId) SELECT j.id, j.name, j.payload, j.status, j.priority, j.startAfter, q.id FROM (${values}) AS j(id, name, payload, status, priority, startAfter) JOIN ${database.queuesTable()} q ON q.name = '${queueName}'`;
     },
     getJobExecutionPromise: workersFactory.getJobExecutionPromise,
     async initialize() {

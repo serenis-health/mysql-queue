@@ -31,6 +31,21 @@ describe("mysqlQueue", () => {
           id: 2,
           name: "create-jobs-table",
         },
+        {
+          applied_at: expect.any(Date),
+          id: 3,
+          name: "add-id-to-index",
+        },
+        {
+          applied_at: expect.any(Date),
+          id: 4,
+          name: "not-nullable-start-after",
+        },
+        {
+          applied_at: expect.any(Date),
+          id: 5,
+          name: "jobs-ms-timestamp",
+        },
       ]);
     });
 
@@ -147,7 +162,7 @@ describe("mysqlQueue", () => {
           payload: { message: "Hello, world!" },
           priority: 0,
           queueId: expect.any(String),
-          startAfter: null,
+          startAfter: expect.any(Date),
           status: "pending",
         });
       });
@@ -165,8 +180,6 @@ describe("mysqlQueue", () => {
 
       it("should not throw case 0 jobs params passed", async () => {
         await instance.enqueue(queueName, []);
-        const sql = instance.getEnqueueRawSql(queueName, []);
-        expect(sql).toEqual("SELECT NULL LIMIT 0;");
       });
 
       it("should fire the worker callback", async () => {
@@ -241,7 +254,7 @@ describe("mysqlQueue", () => {
           payload: { message: "Hello, world!" },
           priority: 0,
           queueId: expect.any(String),
-          startAfter: null,
+          startAfter: expect.any(Date),
           status: "pending",
         });
       });

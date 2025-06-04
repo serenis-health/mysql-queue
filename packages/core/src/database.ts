@@ -7,7 +7,7 @@ const TABLES_NAME_PREFIX = "mysql_queue_";
 export type Database = ReturnType<typeof Database>;
 
 export function Database(logger: Logger, options: { uri: string; tablesPrefix?: string }) {
-  const pool = createPool({ timezone: "Z", uri: options.uri, waitForConnections: true });
+  const pool = createPool({ multipleStatements: true, timezone: "Z", uri: options.uri, waitForConnections: true });
 
   const migrations = [
     {
@@ -45,6 +45,46 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
         INDEX idx_queueId_status_startAfter_priority_createdAt  (queueId, status, startAfter, priority, createdAt)
       )`,
     },
+    {
+      down: `
+      DROP INDEX idx_queueId_status_createdAt_priority_createdAt_id ON ${jobsTable()};
+
+      CREATE INDEX idx_queueId_status_startAfter_priority_createdAt
+      ON ${jobsTable()} (queueId, status, startAfter, priority, createdAt);
+      `,
+      name: "add-id-to-index",
+      number: 3,
+      up: `
+      DROP INDEX idx_queueId_status_startAfter_priority_createdAt ON ${jobsTable()};
+
+      CREATE INDEX idx_queueId_status_createdAt_priority_createdAt_id
+      ON ${jobsTable()} (queueId, status, createdAt, priority DESC, id ASC);`,
+    },
+    {
+      down: `ALTER TABLE ${jobsTable()} MODIFY COLUMN startAfter TIMESTAMP NULL;`,
+      name: "not-nullable-start-after",
+      number: 4,
+      up: `UPDATE ${jobsTable()}
+      SET startAfter = createdAt
+      WHERE startAfter IS NULL;
+
+      ALTER TABLE ${jobsTable()} MODIFY COLUMN startAfter TIMESTAMP NOT NULL;`,
+    },
+    {
+      down: `
+      ALTER TABLE ${jobsTable()}
+        MODIFY startAfter TIMESTAMP,
+        MODIFY createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        MODIFY completedAt TIMESTAMP NULL,
+        MODIFY failedAt TIMESTAMP NULL;`,
+      name: "jobs-ms-timestamp",
+      number: 5,
+      up: `ALTER TABLE ${jobsTable()}
+        MODIFY startAfter TIMESTAMP(3),
+        MODIFY createdAt TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3),
+        MODIFY completedAt TIMESTAMP(3) NULL,
+        MODIFY failedAt TIMESTAMP(3) NULL;`,
+    },
   ];
 
   async function runWithPoolConnection<T>(cb: (connection: PoolConnection) => Promise<T>) {
@@ -57,7 +97,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
   }
 
   return {
-    async addJobs(queueName: string, params: Omit<DbAddJobsParams, "queueId">[], session?: Session) {
+    async addJobs(queueName: string, params: DbAddJobsParams, session?: Session) {
       if (params.length === 0) return;
       const values = [...params.flatMap((job) => [job.id, job.name, job.payload, job.status, job.priority, job.startAfter]), queueName];
       const sql = `INSERT INTO ${jobsTable()} (id, name, payload, status, priority, startAfter, queueId) SELECT j.*, q.id FROM (SELECT ? AS id, ? AS name, ? AS payload, ? AS status, ? AS priority, ? AS startAfter ${params
@@ -91,8 +131,8 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     },
     async getPendingJobs(connection: PoolConnection, queueId: string, batchSize: number) {
       const [rows] = await connection.query<RowDataPacket[]>(
-        `SELECT * FROM ${jobsTable()} WHERE status = ? AND queueId = ? AND (startAfter IS NULL OR startAfter <= ?) ORDER BY priority ASC, createdAt ASC LIMIT ? FOR UPDATE SKIP LOCKED`,
-        ["pending", queueId, new Date(), batchSize],
+        `SELECT * FROM ${jobsTable()} FORCE INDEX (idx_queueId_status_createdAt_priority_createdAt_id) WHERE queueId = ? AND status = ? AND startAfter <= ? ORDER BY createdAt ASC, priority DESC LIMIT ? FOR UPDATE SKIP LOCKED`,
+        [queueId, "pending", new Date(), batchSize],
       );
       return rows;
     },
@@ -142,7 +182,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       try {
         const [rows] = await connection.query<RowDataPacket[]>(`SELECT name FROM ${migrationsTable()}`);
         const appliedMigrations = new Set(rows.map((row) => row.name));
-        for (const migration of migrations) {
+        for (const migration of [...migrations].reverse()) {
           if (appliedMigrations.has(migration.name)) {
             await connection.query(migration.down);
             logger.debug(`Applied down migration ${migration.name}`);

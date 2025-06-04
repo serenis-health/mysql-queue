@@ -15,7 +15,9 @@ export function JobProcessor(database: Database, logger: Logger, queue: Queue, c
 
       await database.runWithPoolConnection(async (connection) => {
         const transactionId = randomUUID();
+        const start = Date.now();
         try {
+          await connection.query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
           await connection.beginTransaction();
           const jobs = (await database.getPendingJobs(connection, queue.id, batchSize)) as Job[];
           if (jobs.length === 0) {
@@ -33,7 +35,8 @@ export function JobProcessor(database: Database, logger: Logger, queue: Queue, c
           }
 
           await connection.commit();
-          logger.debug({ jobCount, jobIds, transactionId }, `jobProcessor.processBatch.commited`);
+          const elapsedSeconds = (Date.now() - start) / 1000;
+          logger.debug({ elapesSeconds: elapsedSeconds, jobCount, jobIds, transactionId }, `jobProcessor.processBatch.committed`);
         } catch (error: unknown) {
           await connection.rollback();
           const typedError = error as Error;
