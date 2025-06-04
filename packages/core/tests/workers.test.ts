@@ -14,6 +14,7 @@ describe("workers", () => {
   beforeEach(async () => {
     mysqlQueue = MysqlQueue({
       dbUri: DB_URI,
+      loggingLevel: "fatal",
       tablesPrefix: `${randomUUID().slice(-4)}_`,
     });
     await mysqlQueue.initialize();
@@ -102,12 +103,5 @@ function enqueueNJobs(mysqlQueue: MysqlQueue, queueName: string, n: number) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function hasExactly(arr: any[], count: number, predicate: (item: any) => boolean) {
-  let matchCount = 0;
-  for (const item of arr) {
-    if (predicate(item)) {
-      matchCount++;
-      if (matchCount > count) return false;
-    }
-  }
-  return matchCount === count;
+  return arr.filter(predicate).length === count;
 }
