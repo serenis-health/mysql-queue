@@ -137,6 +137,25 @@ describe("workers", () => {
         status: "failed",
       });
     }, 10_000);
+
+    it("should handle jobs in order of priority", async () => {
+      const WorkerHandlerMock = { handle: vitest.fn() };
+      const queueName = "test_queue";
+      await mysqlQueue.upsertQueue(queueName);
+      worker = await mysqlQueue.work(queueName, WorkerHandlerMock.handle);
+      void worker.start();
+      const promise = mysqlQueue.getJobExecutionPromise(queueName, 3);
+
+      mysqlQueue.enqueue(queueName, [
+        { name: "prio-1", payload: {}, priority: 1 },
+        { name: "prio-2", payload: {}, priority: 2 },
+        { name: "prio-3", payload: {}, priority: 3 },
+      ]);
+      await promise;
+
+      await sleep(500); //TODO remove
+      expect(WorkerHandlerMock.handle.mock.calls.map((c) => c[0].name)).toEqual(["prio-3", "prio-2", "prio-1"]);
+    }, 10_000);
   });
 });
 
