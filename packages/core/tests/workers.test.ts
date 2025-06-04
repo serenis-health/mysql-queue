@@ -43,8 +43,8 @@ describe("workers", () => {
 
     it("should distribute jobs between two workers without any job being processed more than once", async () => {
       const promise = mysqlQueue.getJobExecutionPromise(queueName, 10);
-      await enqueueNJobs(mysqlQueue, queueName, 10);
 
+      await enqueueNJobs(mysqlQueue, queueName, 10);
       void Promise.all([worker1.start(), worker2.start()]);
       await promise;
 
@@ -57,12 +57,11 @@ describe("workers", () => {
 
     it("should ensure that a slow worker does not block or delay other workers, case jobs already on queue", async () => {
       await enqueueNJobs(mysqlQueue, queueName, 10);
-      void Promise.all([worker1.start(), worker2.start()]);
-      const promise = mysqlQueue.getJobExecutionPromise(queueName, 10);
 
+      const promise = mysqlQueue.getJobExecutionPromise(queueName, 10);
+      void Promise.all([worker1.start(), worker2.start()]);
       await promise;
 
-      await sleep(500); //TODO remove
       const [rows] = await pool.query<RowDataPacket[]>(`SELECT id, createdAt, completedAt from ${mysqlQueue.jobsTable()}`);
       const jobs = rows.map((j) => ({ ...j, durationMs: new Date(j.completedAt).getTime() - new Date(j.createdAt).getTime() }));
       expect(hasExactly(jobs, 5, (item) => item.durationMs > 3000)).toBeTruthy();
@@ -71,12 +70,11 @@ describe("workers", () => {
 
     it("should ensure that a slow worker does not block or delay other workers, case no jobs on queue", async () => {
       void Promise.all([worker1.start(), worker2.start()]);
-      await enqueueNJobs(mysqlQueue, queueName, 10);
-      const promise = mysqlQueue.getJobExecutionPromise(queueName, 10);
 
+      const promise = mysqlQueue.getJobExecutionPromise(queueName, 10);
+      await enqueueNJobs(mysqlQueue, queueName, 10);
       await promise;
 
-      await sleep(500); //TODO remove
       const [rows] = await pool.query<RowDataPacket[]>(`SELECT id, createdAt, completedAt from ${mysqlQueue.jobsTable()}`);
       const jobs = rows.map((j) => ({ ...j, durationMs: new Date(j.completedAt).getTime() - new Date(j.createdAt).getTime() }));
       expect(hasExactly(jobs, 5, (item) => item.durationMs > 3000)).toBeTruthy();
@@ -101,10 +99,10 @@ describe("workers", () => {
       };
       const queueName = "test_queue2";
       await mysqlQueue.upsertQueue(queueName, { backoffMultiplier: 2, maxRetries: 4 });
-      worker = await mysqlQueue.work(queueName, Worker1HandlerMock.handle);
+      worker = await mysqlQueue.work(queueName, Worker1HandlerMock.handle, 100);
       void worker.start();
-      const promise = mysqlQueue.getJobExecutionPromise(queueName, 4);
 
+      const promise = mysqlQueue.getJobExecutionPromise(queueName, 4);
       await enqueueNJobs(mysqlQueue, queueName, 1);
       await promise;
 
@@ -122,14 +120,13 @@ describe("workers", () => {
       };
       const queueName = "test_queue";
       await mysqlQueue.upsertQueue(queueName, { maxDurationMs: 1000, maxRetries: 1 });
-      worker = await mysqlQueue.work(queueName, Worker1HandlerMock.handle);
+      worker = await mysqlQueue.work(queueName, Worker1HandlerMock.handle, 100);
       void worker.start();
-      const promise = mysqlQueue.getJobExecutionPromise(queueName, 1);
 
+      const promise = mysqlQueue.getJobExecutionPromise(queueName, 1);
       await enqueueNJobs(mysqlQueue, queueName, 1);
       await promise;
 
-      await sleep(500); //TODO remove
       const [rows] = await pool.query<RowDataPacket[]>(`SELECT * from ${mysqlQueue.jobsTable()}`);
       expect(rows[0]).toMatchObject({
         failedAt: expect.any(Date),
@@ -142,10 +139,10 @@ describe("workers", () => {
       const WorkerHandlerMock = { handle: vitest.fn() };
       const queueName = "test_queue";
       await mysqlQueue.upsertQueue(queueName);
-      worker = await mysqlQueue.work(queueName, WorkerHandlerMock.handle);
+      worker = await mysqlQueue.work(queueName, WorkerHandlerMock.handle, 100);
       void worker.start();
-      const promise = mysqlQueue.getJobExecutionPromise(queueName, 3);
 
+      const promise = mysqlQueue.getJobExecutionPromise(queueName, 3);
       mysqlQueue.enqueue(queueName, [
         { name: "prio-1", payload: {}, priority: 1 },
         { name: "prio-2", payload: {}, priority: 2 },
@@ -153,9 +150,27 @@ describe("workers", () => {
       ]);
       await promise;
 
-      await sleep(500); //TODO remove
       expect(WorkerHandlerMock.handle.mock.calls.map((c) => c[0].name)).toEqual(["prio-3", "prio-2", "prio-1"]);
     }, 10_000);
+
+    it("tracker promise should resolved after status are committed", async () => {
+      const WorkerHandlerMock = { handle: vitest.fn() };
+      const queueName = "test_queue";
+      await mysqlQueue.upsertQueue(queueName);
+      worker = await mysqlQueue.work(queueName, WorkerHandlerMock.handle, 100);
+      void worker.start();
+
+      const promise = mysqlQueue.getJobExecutionPromise(queueName, 1);
+      mysqlQueue.enqueue(queueName, { name: "1", payload: {} });
+      await promise;
+
+      const [rows] = await pool.query<RowDataPacket[]>(`SELECT * from ${mysqlQueue.jobsTable()}`);
+      expect(rows[0]).toMatchObject({
+        attempts: 1,
+        completedAt: expect.any(Date),
+        status: "completed",
+      });
+    });
   });
 });
 

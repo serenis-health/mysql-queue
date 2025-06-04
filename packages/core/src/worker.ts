@@ -1,4 +1,4 @@
-import { Job, Queue, WorkerCallback } from "./types";
+import { JobWithQueueName, Queue, WorkerCallback } from "./types";
 import { Database } from "./database";
 import { errorToJson } from "./utils";
 import { JobProcessor } from "./jobProcessor";
@@ -6,13 +6,22 @@ import { Logger } from "./logger";
 import { randomUUID } from "node:crypto";
 
 export function WorkersFactory(logger: Logger, database: Database) {
-  const jobExecutionTrackers: Record<string, { remaining: number; promise: (job: Job) => void }> = {};
+  const jobExecutionTrackers: Record<string, { remaining: number; promise: (job: JobWithQueueName) => void }> = {};
   const workers: Worker[] = [];
 
   return {
     create(callback: WorkerCallback, pollingIntervalMs = 500, batchSize = 1, queue: Queue) {
-      const wrappedCallback = createWrappedCallback(callback, queue);
-      const worker = Worker(wrappedCallback, pollingIntervalMs, batchSize, logger, database, queue);
+      const worker = Worker(callback, pollingIntervalMs, batchSize, logger, database, queue, (job) => {
+        const tracker = jobExecutionTrackers[queue.name];
+        if (tracker) {
+          tracker.remaining -= 1;
+          logger.debug({ queueName: queue.name, remaining: tracker.remaining }, "workers.jobExecutionPromiseTick");
+          if (tracker.remaining <= 0) {
+            tracker.promise(job);
+            logger.debug({ queueName: queue.name }, "workers.jobExecutionPromiseResolved");
+          }
+        }
+      });
       workers.push(worker);
       return worker;
     },
@@ -28,33 +37,23 @@ export function WorkersFactory(logger: Logger, database: Database) {
       return Promise.all(workers.map((worker) => worker.stop()));
     },
   };
-
-  function createWrappedCallback(callback: WorkerCallback, queue: Queue) {
-    return async function (...args: Parameters<typeof callback>): Promise<void> {
-      try {
-        await callback(...args);
-      } finally {
-        const tracker = jobExecutionTrackers[queue.name];
-        if (tracker) {
-          tracker.remaining -= 1;
-          logger.debug({ queueName: queue.name, remaining: tracker.remaining }, "workers.jobExecutionPromiseTick");
-          if (tracker.remaining <= 0) {
-            tracker.promise(args[0]);
-            logger.debug({ queueName: queue.name }, "workers.jobExecutionPromiseResolved");
-          }
-        }
-      }
-    };
-  }
 }
 
 export type Worker = ReturnType<typeof Worker>;
 
-export function Worker(callback: WorkerCallback, pollingIntervalMs = 500, batchSize = 1, logger: Logger, database: Database, queue: Queue) {
+export function Worker(
+  callback: WorkerCallback,
+  pollingIntervalMs = 500,
+  batchSize = 1,
+  logger: Logger,
+  database: Database,
+  queue: Queue,
+  onJobProcessed?: (job: JobWithQueueName) => void,
+) {
   const workerId = randomUUID();
   const wLogger = logger.child({ workerId });
 
-  const jobProcessor = JobProcessor(database, wLogger, queue, callback);
+  const jobProcessor = JobProcessor(database, wLogger, queue, callback, onJobProcessed);
 
   const controller = new AbortController();
   const { signal } = controller;
