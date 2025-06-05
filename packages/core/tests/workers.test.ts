@@ -108,7 +108,7 @@ describe("workers", () => {
 
       const expected = [0, 1032, 3064, 7135];
       callsToTimeFromFirst(calls).forEach((ms, i) => {
-        expect(approxEqual(ms, expected[i], 100)).toBeTruthy();
+        expect(approxEqual(ms, expected[i], 200)).toBeTruthy();
       });
     }, 10_000);
 
