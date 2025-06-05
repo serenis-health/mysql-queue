@@ -37,12 +37,14 @@ export function MysqlQueue(options: Options) {
     },
 
     async enqueue(queueName: string, params: EnqueueParams, session?: Session) {
+      const now = new Date();
       const jobsForInsert: JobForInsert[] = (Array.isArray(params) ? params : [params]).map((p) => ({
+        createdAt: now,
         id: randomUUID(),
         name: p.name,
         payload: JSON.stringify(p.payload),
         priority: p.priority || 0,
-        startAfter: p.startAfter || new Date(),
+        startAfter: p.startAfter || now,
         status: "pending",
       }));
 
@@ -62,7 +64,7 @@ export function MysqlQueue(options: Options) {
     queuesTable: database.queuesTable,
     async upsertQueue(name: string, params: UpsertQueueParams = {}) {
       const queueWithoutId: Omit<Queue, "id"> = {
-        backoffMultiplier: params.backoffMultiplier !== undefined ? params.backoffMultiplier : 2,
+        backoffMultiplier: params.backoffMultiplier && params.backoffMultiplier > 0 ? params.backoffMultiplier : 2,
         maxDurationMs: params.maxDurationMs || 5000,
         maxRetries: params.maxRetries || 3,
         minDelayMs: params.minDelayMs || 1000,

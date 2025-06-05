@@ -12,7 +12,7 @@ export interface Queue {
   name: string;
   maxRetries: number;
   minDelayMs: number;
-  backoffMultiplier: number | null;
+  backoffMultiplier: number;
   maxDurationMs: number;
 }
 
@@ -27,7 +27,7 @@ export interface Job {
   attempts: number;
   latestFailureReason: string | null;
   queueId: string;
-  startAfter: Date | null;
+  startAfter: Date;
 }
 
 export type JobWithQueueName = Job & { queueName: string };
@@ -39,6 +39,7 @@ export interface JobForInsert {
   status: "pending";
   priority: number;
   startAfter: Date;
+  createdAt: Date;
 }
 
 export type WorkerCallback = (job: Job, signal: AbortSignal, session: Session) => Promise<void> | void;

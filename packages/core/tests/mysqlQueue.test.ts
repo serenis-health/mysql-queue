@@ -31,21 +31,6 @@ describe("mysqlQueue", () => {
           id: 2,
           name: "create-jobs-table",
         },
-        {
-          applied_at: expect.any(Date),
-          id: 3,
-          name: "add-id-to-index",
-        },
-        {
-          applied_at: expect.any(Date),
-          id: 4,
-          name: "not-nullable-start-after",
-        },
-        {
-          applied_at: expect.any(Date),
-          id: 5,
-          name: "jobs-ms-timestamp",
-        },
       ]);
     });
 
@@ -127,6 +112,36 @@ describe("mysqlQueue", () => {
         name: "test_quque",
       });
     });
+
+    it("should set backoffMultiplier to 2 if 0 is passed", async () => {
+      const queueName = "test_quque";
+      await instance.upsertQueue(queueName, { backoffMultiplier: 0 });
+
+      const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.queuesTable()};`);
+
+      expect(isValidUUID(row.id)).toBeTruthy();
+      expect(row.backoffMultiplier).toEqual(2);
+    });
+
+    it("should set backoffMultiplier to 2 if -1 is passed", async () => {
+      const queueName = "test_quque";
+      await instance.upsertQueue(queueName, { backoffMultiplier: -1 });
+
+      const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.queuesTable()};`);
+
+      expect(isValidUUID(row.id)).toBeTruthy();
+      expect(row.backoffMultiplier).toEqual(2);
+    });
+
+    it("should set backoffMultiplier to 3 if 3 is passed", async () => {
+      const queueName = "test_quque";
+      await instance.upsertQueue(queueName, { backoffMultiplier: 3 });
+
+      const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.queuesTable()};`);
+
+      expect(isValidUUID(row.id)).toBeTruthy();
+      expect(row.backoffMultiplier).toEqual(3);
+    });
   });
 
   describe("enqueue", () => {
@@ -165,6 +180,7 @@ describe("mysqlQueue", () => {
           startAfter: expect.any(Date),
           status: "pending",
         });
+        expect(row.startAfter.getTime()).toBe(row.createdAt.getTime());
       });
 
       it("should throw case queue not exists", async () => {

@@ -15,13 +15,13 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       name: "create-queues-table",
       number: 1,
       up: `
-        CREATE TABLE IF NOT EXISTS ${queuesTable()} (
+        CREATE TABLE ${queuesTable()} (
           id CHAR(36) NOT NULL PRIMARY KEY,
           name VARCHAR(50) NOT NULL UNIQUE,
           maxRetries INT UNSIGNED NOT NULL,
           maxDurationMs INT UNSIGNED NOT NULL,
           minDelayMs INT UNSIGNED NOT NULL,
-          backoffMultiplier FLOAT,
+          backoffMultiplier FLOAT NOT NULL,
           INDEX idx_name (name))`,
     },
     {
@@ -29,61 +29,22 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       name: "create-jobs-table",
       number: 2,
       up: `
-      CREATE TABLE IF NOT EXISTS ${jobsTable()} (
+      CREATE TABLE ${jobsTable()} (
         id CHAR(36) NOT NULL PRIMARY KEY,
         name VARCHAR(50) NOT NULL,
         payload JSON NOT NULL,
-        status VARCHAR(50) NOT NULL,
-        startAfter TIMESTAMP,
-        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        completedAt TIMESTAMP NULL,
-        failedAt TIMESTAMP NULL,
+        status ENUM('pending', 'completed', 'failed') NOT NULL,
+        startAfter TIMESTAMP(3) NOT NULL,
+        createdAt TIMESTAMP(3) NOT NULL,
+        completedAt TIMESTAMP(3) NULL,
+        failedAt TIMESTAMP(3) NULL,
         latestFailureReason VARCHAR(100) NULL,
-        attempts INT DEFAULT 0 NULL,
+        attempts INT DEFAULT 0 NOT NULL,
         priority INT NOT NULL,
-        queueId CHAR(36) NULL,
-        INDEX idx_queueId_status_startAfter_priority_createdAt  (queueId, status, startAfter, priority, createdAt)
+        queueId CHAR(36) NOT NULL,
+        FOREIGN KEY (queueId) REFERENCES ${queuesTable()}(id) ON DELETE CASCADE,
+        INDEX idx_queueId_status_createdAt_priority_id  (queueId, status, createdAt, priority DESC, id ASC)
       )`,
-    },
-    {
-      down: `
-      DROP INDEX idx_queueId_status_createdAt_priority_createdAt_id ON ${jobsTable()};
-
-      CREATE INDEX idx_queueId_status_startAfter_priority_createdAt
-      ON ${jobsTable()} (queueId, status, startAfter, priority, createdAt);
-      `,
-      name: "add-id-to-index",
-      number: 3,
-      up: `
-      DROP INDEX idx_queueId_status_startAfter_priority_createdAt ON ${jobsTable()};
-
-      CREATE INDEX idx_queueId_status_createdAt_priority_createdAt_id
-      ON ${jobsTable()} (queueId, status, createdAt, priority DESC, id ASC);`,
-    },
-    {
-      down: `ALTER TABLE ${jobsTable()} MODIFY COLUMN startAfter TIMESTAMP NULL;`,
-      name: "not-nullable-start-after",
-      number: 4,
-      up: `UPDATE ${jobsTable()}
-      SET startAfter = createdAt
-      WHERE startAfter IS NULL;
-
-      ALTER TABLE ${jobsTable()} MODIFY COLUMN startAfter TIMESTAMP NOT NULL;`,
-    },
-    {
-      down: `
-      ALTER TABLE ${jobsTable()}
-        MODIFY startAfter TIMESTAMP,
-        MODIFY createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        MODIFY completedAt TIMESTAMP NULL,
-        MODIFY failedAt TIMESTAMP NULL;`,
-      name: "jobs-ms-timestamp",
-      number: 5,
-      up: `ALTER TABLE ${jobsTable()}
-        MODIFY startAfter TIMESTAMP(3),
-        MODIFY createdAt TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3),
-        MODIFY completedAt TIMESTAMP(3) NULL,
-        MODIFY failedAt TIMESTAMP(3) NULL;`,
     },
   ];
 
@@ -99,12 +60,15 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
   return {
     async addJobs(queueName: string, params: DbAddJobsParams, session?: Session) {
       if (params.length === 0) return;
-      const values = [...params.flatMap((job) => [job.id, job.name, job.payload, job.status, job.priority, job.startAfter]), queueName];
-      const sql = `INSERT INTO ${jobsTable()} (id, name, payload, status, priority, startAfter, queueId) SELECT j.*, q.id FROM (SELECT ? AS id, ? AS name, ? AS payload, ? AS status, ? AS priority, ? AS startAfter ${params
-        .slice(1)
-        .map(() => "UNION ALL SELECT ?, ?, ?, ?, ?, ?")
-        .join(" ")}) AS j JOIN ${queuesTable()} q ON q.name = ?`;
-
+      const values = [...params.flatMap((j) => [j.id, j.name, j.payload, j.status, j.priority, j.startAfter, j.createdAt]), queueName];
+      const sql = `
+        INSERT INTO ${jobsTable()} (id, name, payload, status, priority, startAfter, createdAt, queueId)
+        SELECT j.*, q.id FROM (SELECT ? AS id, ? AS name, ? AS payload, ? AS status, ? AS priority, ? AS startAfter, ? AS createdAt ${params
+          .slice(1)
+          .map(() => "UNION ALL SELECT ?, ?, ?, ?, ?, ?, ?")
+          .join(" ")}) AS j
+        JOIN ${queuesTable()} q ON q.name = ?
+      `;
       const result: object[] = session ? await session.query(sql, values) : await runWithPoolConnection((c) => c.query(sql, values));
 
       if (!Array.isArray(result)) throw new Error("Session did not return an array");
@@ -131,7 +95,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     },
     async getPendingJobs(connection: PoolConnection, queueId: string, batchSize: number) {
       const [rows] = await connection.query<RowDataPacket[]>(
-        `SELECT * FROM ${jobsTable()} FORCE INDEX (idx_queueId_status_createdAt_priority_createdAt_id) WHERE queueId = ? AND status = ? AND startAfter <= ? ORDER BY createdAt ASC, priority DESC LIMIT ? FOR UPDATE SKIP LOCKED`,
+        `SELECT * FROM ${jobsTable()} FORCE INDEX (idx_queueId_status_createdAt_priority_id) WHERE queueId = ? AND status = ? AND startAfter <= ? ORDER BY createdAt ASC, priority DESC LIMIT ? FOR UPDATE SKIP LOCKED`,
         [queueId, "pending", new Date(), batchSize],
       );
       return rows;
