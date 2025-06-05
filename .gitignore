@@ -1,2 +1,5 @@
 dist
+.next
+.env*
+
 *-debug.log
