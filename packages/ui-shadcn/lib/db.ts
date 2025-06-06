@@ -18,7 +18,10 @@ export async function getQueues(): Promise<Queue[]> {
     `);
     const dbQueues: DbQueue[] = rows as unknown as DbQueue[];
 
-    return dbQueues;
+    return dbQueues.map((q) => ({
+      ...q,
+      jobsCount: q.count,
+    }));
   } finally {
     await connection.end();
   }
@@ -56,11 +59,21 @@ export async function getJobs(params: GetJobsParams): Promise<Job[]> {
     const [rows] = await connection.execute(query, filters);
     const dbJobs = rows as unknown as DbJobWithQueue[];
 
-    return dbJobs.map((j) => ({
+    const jobs: Job[] = dbJobs.map((j) => ({
       ...j,
-      completedIn: j.completedAt ? j.completedAt.getTime() - j.createdAt.getTime() : null,
+      durationMs: j.completedAt
+        ? j.completedAt.getTime() - j.createdAt.getTime()
+        : j.failedAt
+          ? j.failedAt.getTime() - j.createdAt.getTime()
+          : null,
       status: j.status === "pending" && j.startAfter !== j.createdAt ? "scheduled" : j.status,
+      createdAt: j.createdAt.toISOString(),
+      failedAt: j.failedAt ? j.failedAt.toISOString() : null,
+      scheduledFor: j.startAfter.getTime() !== j.createdAt.getTime() ? j.startAfter.toISOString() : null,
+      completedAt: j.completedAt ? j.completedAt.toISOString() : null,
     }));
+
+    return jobs;
   } finally {
     await connection.end();
   }
@@ -146,5 +159,13 @@ type GetJobsParams = {
   searchQuery?: string;
 };
 
-export type Job = Omit<DbJob, "status"> & { status: "pending" | "completed" | "failed" | "scheduled"; completedIn: number | null };
-export type Queue = DbQueue;
+export type Job = Omit<DbJob, "status" | "queueName" | "completedAt" | "createdAt" | "failedAt" | "startAfter"> & {
+  status: "pending" | "completed" | "failed" | "scheduled";
+  durationMs: number | null;
+  completedAt: string | null;
+  createdAt: string;
+  failedAt: string | null;
+  scheduledFor: string | null;
+  queueName: string;
+};
+export type Queue = DbQueue & { jobsCount: number };

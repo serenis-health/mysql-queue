@@ -13,7 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-const jobStatuses: Record<Job["status"], { color: string; icon: React.FC<React.SVGProps<SVGSVGElement>>; label: string }> = {
+const STATUS: Record<Job["status"], { color: string; icon: React.FC<React.SVGProps<SVGSVGElement>>; label: string }> = {
   completed: { color: "bg-green-500", icon: CheckCircle, label: "Completed" },
   failed: { color: "bg-red-500", icon: AlertCircle, label: "Failed" },
   pending: { color: "bg-yellow-500", icon: Clock, label: "Pending" },
@@ -21,7 +21,13 @@ const jobStatuses: Record<Job["status"], { color: string; icon: React.FC<React.S
 };
 
 function getStatusInfo(status: Job["status"]) {
-  return jobStatuses[status as keyof typeof jobStatuses];
+  return STATUS[status as keyof typeof STATUS];
+}
+
+function getPriorityInfo(priority: Job["priority"]) {
+  if (priority === 0) return { color: "bg-blue-500", icon: Clock, label: "normal" };
+  if (priority > 9) return { color: "bg-red-500", icon: AlertCircle, label: "high" };
+  else return { color: "bg-yellow-500", icon: AlertCircle, label: "low" };
 }
 
 export default function JobsSystemClient({
@@ -206,7 +212,8 @@ export default function JobsSystemClient({
                             <CardContent className="p-4 pt-0">
                               <div className="text-sm text-muted-foreground">
                                 {formatDistanceToNowStrict(job.createdAt)} ago
-                                {!!job.attempts && ` • Attempts: ${job.attempts}`}
+                                {!!job.attempts && ` • ${job.attempts} attempts`}
+                                {job.completedIn && ` • ${job.completedIn} ms`}
                               </div>
                             </CardContent>
                           </Card>
@@ -259,19 +266,25 @@ export default function JobsSystemClient({
               <div className="flex space-x-4">
                 <div>
                   <h3 className="text-sm font-medium text-muted-foreground">Created</h3>
-                  <p className="text-base">{jobDetail.createdAt.toLocaleString()} ({formatDistanceToNowStrict(jobDetail.createdAt)} ago)</p>
+                  <p className="text-base">
+                    {jobDetail.createdAt.toLocaleString()} ({formatDistanceToNowStrict(jobDetail.createdAt)} ago)
+                  </p>
                 </div>
 
                 <div>
                   <h3 className="text-sm font-medium text-muted-foreground">Priority</h3>
-                  <p className="text-base">{jobDetail.priority}</p>
+                  <Badge className={`${getPriorityInfo(jobDetail.priority).color} text-white`}>
+                    {getPriorityInfo(jobDetail.priority).label}
+                  </Badge>
                 </div>
               </div>
 
               {jobDetail.startAfter && (
                 <div>
                   <h3 className="text-sm font-medium text-muted-foreground">Start After</h3>
-                  <p className="text-base">{new Date(jobDetail.startAfter).toLocaleString()} ({formatDistanceToNowStrict(jobDetail.startAfter)} from now)</p>
+                  <p className="text-base">
+                    {new Date(jobDetail.startAfter).toLocaleString()} ({formatDistanceToNowStrict(jobDetail.startAfter)} from now)
+                  </p>
                 </div>
               )}
 
