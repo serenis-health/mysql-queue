@@ -144,13 +144,13 @@ describe("workers", () => {
 
       const promise = mysqlQueue.getJobExecutionPromise(queueName, 3);
       mysqlQueue.enqueue(queueName, [
-        { name: "prio-1", payload: {}, priority: 1 },
-        { name: "prio-2", payload: {}, priority: 2 },
-        { name: "prio-3", payload: {}, priority: 3 },
+        { name: "priority-1", payload: {}, priority: 1 },
+        { name: "priority-2", payload: {}, priority: 2 },
+        { name: "priority-3", payload: {}, priority: 3 },
       ]);
       await promise;
 
-      expect(WorkerHandlerMock.handle.mock.calls.map((c) => c[0].name)).toEqual(["prio-3", "prio-2", "prio-1"]);
+      expect(WorkerHandlerMock.handle.mock.calls.map((c) => c[0].name)).toEqual(["priority-3", "priority-2", "priority-1"]);
     }, 10_000);
 
     it("tracker promise should resolved after status are committed", async () => {
