@@ -74,7 +74,7 @@ describe("mysqlQueue", () => {
     });
 
     it("should create a row in mysql_queue_queues", async () => {
-      const queueName = "test_quque";
+      const queueName = "test_queue";
       await instance.upsertQueue(queueName);
 
       const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.queuesTable()};`);
@@ -86,12 +86,12 @@ describe("mysqlQueue", () => {
         maxDurationMs: 5000,
         maxRetries: 3,
         minDelayMs: 1000,
-        name: "test_quque",
+        name: "test_queue",
       });
     });
 
     it("should update the row in mysql_queue_queues case already created", async () => {
-      const queueName = "test_quque";
+      const queueName = "test_queue";
       await instance.upsertQueue(queueName);
 
       await instance.upsertQueue(queueName, {
@@ -109,12 +109,12 @@ describe("mysqlQueue", () => {
         maxDurationMs: 10000,
         maxRetries: 5,
         minDelayMs: 2000,
-        name: "test_quque",
+        name: "test_queue",
       });
     });
 
     it("should set backoffMultiplier to 2 if 0 is passed", async () => {
-      const queueName = "test_quque";
+      const queueName = "test_queue";
       await instance.upsertQueue(queueName, { backoffMultiplier: 0 });
 
       const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.queuesTable()};`);
@@ -124,7 +124,7 @@ describe("mysqlQueue", () => {
     });
 
     it("should set backoffMultiplier to 2 if -1 is passed", async () => {
-      const queueName = "test_quque";
+      const queueName = "test_queue";
       await instance.upsertQueue(queueName, { backoffMultiplier: -1 });
 
       const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.queuesTable()};`);
@@ -134,7 +134,7 @@ describe("mysqlQueue", () => {
     });
 
     it("should set backoffMultiplier to 3 if 3 is passed", async () => {
-      const queueName = "test_quque";
+      const queueName = "test_queue";
       await instance.upsertQueue(queueName, { backoffMultiplier: 3 });
 
       const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.queuesTable()};`);
@@ -145,7 +145,7 @@ describe("mysqlQueue", () => {
   });
 
   describe("enqueue", () => {
-    const queueName = "test_quque";
+    const queueName = "test_queue";
 
     beforeEach(async () => {
       await instance.initialize();
@@ -237,9 +237,9 @@ describe("mysqlQueue", () => {
 
     describe("with session", () => {
       const session: Session = {
-        async query(sql, paramteres) {
+        async query(sql, parameters) {
           const connection = await queryDatabase.pool.getConnection();
-          const result = await connection.query(sql, paramteres);
+          const result = await connection.query(sql, parameters);
           connection.release();
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           return [{ affectedRows: (result[0] as any).affectedRows }];

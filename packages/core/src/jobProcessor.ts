@@ -42,7 +42,7 @@ export function JobProcessor(
 
           await connection.commit();
           const elapsedSeconds = (Date.now() - start) / 1000;
-          logger.debug({ elapesSeconds: elapsedSeconds, jobCount, jobIds, transactionId }, `jobProcessor.processBatch.committed`);
+          logger.debug({ elapsedSeconds, jobCount, jobIds, transactionId }, `jobProcessor.processBatch.committed`);
           jobs.forEach((j) => onJobProcessed?.({ ...j, queueName: queue.name }));
         } catch (error: unknown) {
           await connection.rollback();
