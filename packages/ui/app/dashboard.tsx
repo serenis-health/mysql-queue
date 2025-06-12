@@ -1,9 +1,17 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { useEffect, useState } from "react";
 import {
   IconBrandGithub,
   IconCalendarClock,
@@ -13,29 +21,21 @@ import {
   IconRecharging,
   IconStopwatch,
 } from "@tabler/icons-react";
-import {
-  AlertDialog,
-  AlertDialogTrigger,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogCancel,
-  AlertDialogAction,
-} from "@/components/ui/alert-dialog";
-import { toast } from "sonner";
-import { formatDistanceToNowStrict } from "date-fns";
 import { Job, Queue } from "@/lib/db";
+import { useEffect, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { formatDistanceToNowStrict } from "date-fns";
+import { toast } from "sonner";
 
 export default function Dashboard({ initialJobs, queues }: { initialJobs: Job[]; queues: Queue[] }) {
   const [jobs, setJobs] = useState<Job[]>(initialJobs);
   const [selectedQueue, setSelectedQueue] = useState<Queue | null>(null);
 
-  const fetchJobs = async (queueId: string) => {
+  async function fetchJobs(queueId: string) {
     const res = await fetch(`/api/jobs${queueId ? `?queueId=${queueId}` : ""}`);
     setJobs(await res.json());
-  };
+  }
 
   useEffect(() => {
     if (selectedQueue) {
