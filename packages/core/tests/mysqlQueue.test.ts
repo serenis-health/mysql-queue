@@ -233,6 +233,12 @@ describe("mysqlQueue", () => {
         await worker.stop();
         expect(workerCbMock).toHaveBeenCalledTimes(2);
       });
+
+      it("should throw case payload size exceed limit", async () => {
+        await expect(() =>
+          instance.enqueue(queueName, [{ name: "test_job", payload: { data: "a".repeat(1024 * 1024) } }]),
+        ).rejects.toThrowError("Payload size exceeds maximum allowed size");
+      });
     });
 
     describe("with session", () => {

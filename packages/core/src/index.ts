@@ -38,15 +38,20 @@ export function MysqlQueue(options: Options) {
 
     async enqueue(queueName: string, params: EnqueueParams, session?: Session) {
       const now = new Date();
-      const jobsForInsert: JobForInsert[] = (Array.isArray(params) ? params : [params]).map((p) => ({
-        createdAt: now,
-        id: randomUUID(),
-        name: p.name,
-        payload: JSON.stringify(p.payload),
-        priority: p.priority || 0,
-        startAfter: p.startAfter || now,
-        status: "pending",
-      }));
+      const jobsForInsert: JobForInsert[] = (Array.isArray(params) ? params : [params]).map((p) => {
+        const payloadStr = JSON.stringify(p.payload);
+        const byteLength = new TextEncoder().encode(payloadStr).length;
+        if (byteLength > (options.maxPayloadSizeKb || 16) * 1024) throw new Error(`Payload size exceeds maximum allowed size`);
+        return {
+          createdAt: now,
+          id: randomUUID(),
+          name: p.name,
+          payload: payloadStr,
+          priority: p.priority || 0,
+          startAfter: p.startAfter || now,
+          status: "pending",
+        };
+      });
 
       await database.addJobs(queueName, jobsForInsert, session);
       logger.debug({ jobs: jobsForInsert }, "enqueue.jobsAddedToQueue");
