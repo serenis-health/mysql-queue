@@ -4,6 +4,7 @@ export interface Options {
   dbUri: string;
   loggingLevel?: LevelWithSilentOrString;
   loggingPrettyPrint?: boolean;
+  maxPayloadSizeKb?: number;
   tablesPrefix?: string;
 }
 
