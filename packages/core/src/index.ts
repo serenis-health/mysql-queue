@@ -99,3 +99,5 @@ export function MysqlQueue(options: Options) {
 }
 
 export type MysqlQueue = ReturnType<typeof MysqlQueue>;
+
+export { Session } from "./types";
