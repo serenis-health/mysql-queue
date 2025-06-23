@@ -1,10 +1,11 @@
 {
-  "name": "@serenis-health/mysql-queue",
-  "version": "0.0.0",
+  "name": "@serenis/mysql-queue",
+  "version": "0.0.2",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
   },
   "devDependencies": {
     "@types/node": "^22.13.15",
@@ -15,6 +16,9 @@
     "mysql2": "^3.14.0",
     "pino": "^9.6.0"
   },
-  "main": "dist/index",
-  "types": "dist/index.d.ts"
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ]
 }
