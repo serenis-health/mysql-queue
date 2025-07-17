@@ -15,7 +15,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       name: "create-queues-table",
       number: 1,
       up: `
-        CREATE TABLE ${queuesTable()} (
+        CREATE TABLE IF NOT EXISTS ${queuesTable()} (
           id CHAR(36) NOT NULL PRIMARY KEY,
           name VARCHAR(50) NOT NULL UNIQUE,
           maxRetries INT UNSIGNED NOT NULL,
@@ -29,7 +29,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       name: "create-jobs-table",
       number: 2,
       up: `
-      CREATE TABLE ${jobsTable()} (
+      CREATE TABLE IF NOT EXISTS ${jobsTable()} (
         id CHAR(36) NOT NULL PRIMARY KEY,
         name VARCHAR(50) NOT NULL,
         payload JSON NOT NULL,
