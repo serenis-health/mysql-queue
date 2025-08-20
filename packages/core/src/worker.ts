@@ -10,18 +10,33 @@ export function WorkersFactory(logger: Logger, database: Database) {
   const workers: Worker[] = [];
 
   return {
-    create(callback: WorkerCallback, pollingIntervalMs = 500, batchSize = 1, queue: Queue) {
-      const worker = Worker(callback, pollingIntervalMs, batchSize, logger, database, queue, (job) => {
-        const tracker = jobExecutionTrackers[queue.name];
-        if (tracker) {
-          tracker.remaining -= 1;
-          logger.debug({ queueName: queue.name, remaining: tracker.remaining }, "workers.jobExecutionPromiseTick");
-          if (tracker.remaining <= 0) {
-            tracker.promise(job);
-            logger.debug({ queueName: queue.name }, "workers.jobExecutionPromiseResolved");
+    create(
+      callback: WorkerCallback,
+      pollingIntervalMs = 500,
+      batchSize = 1,
+      queue: Queue,
+      onJobFailed?: (job: JobWithQueueName, error: Error) => void,
+    ) {
+      const worker = Worker(
+        callback,
+        pollingIntervalMs,
+        batchSize,
+        logger,
+        database,
+        queue,
+        (job) => {
+          const tracker = jobExecutionTrackers[queue.name];
+          if (tracker) {
+            tracker.remaining -= 1;
+            logger.debug({ queueName: queue.name, remaining: tracker.remaining }, "workers.jobExecutionPromiseTick");
+            if (tracker.remaining <= 0) {
+              tracker.promise(job);
+              logger.debug({ queueName: queue.name }, "workers.jobExecutionPromiseResolved");
+            }
           }
-        }
-      });
+        },
+        onJobFailed,
+      );
       workers.push(worker);
       return worker;
     },
@@ -49,11 +64,12 @@ export function Worker(
   database: Database,
   queue: Queue,
   onJobProcessed?: (job: JobWithQueueName) => void,
+  onJobFailed?: (job: JobWithQueueName, error: Error) => void,
 ) {
   const workerId = randomUUID();
   const wLogger = logger.child({ workerId });
 
-  const jobProcessor = JobProcessor(database, wLogger, queue, callback, onJobProcessed);
+  const jobProcessor = JobProcessor(database, wLogger, queue, callback, onJobProcessed, onJobFailed);
 
   const controller = new AbortController();
   const { signal } = controller;

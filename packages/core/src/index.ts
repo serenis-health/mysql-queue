@@ -1,4 +1,14 @@
-import { EnqueueParams, JobForInsert, Options, Queue, RetrieveQueueParams, Session, UpsertQueueParams, WorkerCallback } from "./types";
+import {
+  EnqueueParams,
+  JobForInsert,
+  JobWithQueueName,
+  Options,
+  Queue,
+  RetrieveQueueParams,
+  Session,
+  UpsertQueueParams,
+  WorkerCallback,
+} from "./types";
 import { Database } from "./database";
 import { Logger } from "./logger";
 import { randomUUID } from "node:crypto";
@@ -35,7 +45,6 @@ export function MysqlQueue(options: Options) {
       logger.info("disposed");
       logger.flush();
     },
-
     async enqueue(queueName: string, params: EnqueueParams, session?: Session) {
       const now = new Date();
       const jobsForInsert: JobForInsert[] = (Array.isArray(params) ? params : [params]).map((p) => {
@@ -91,9 +100,15 @@ export function MysqlQueue(options: Options) {
       const queue: Queue = { id, ...queueWithoutId };
       return queue;
     },
-    async work(queueName: string, callback: WorkerCallback, pollingIntervalMs = 500, batchSize = 1) {
+    async work(
+      queueName: string,
+      callback: WorkerCallback,
+      pollingIntervalMs = 500,
+      batchSize = 1,
+      onJobFailed?: (job: JobWithQueueName, error: Error) => void,
+    ) {
       const queue = await retrieveQueue({ name: queueName });
-      return workersFactory.create(callback, pollingIntervalMs, batchSize, queue);
+      return workersFactory.create(callback, pollingIntervalMs, batchSize, queue, onJobFailed);
     },
   };
 }

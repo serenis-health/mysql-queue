@@ -171,6 +171,38 @@ describe("workers", () => {
         status: "completed",
       });
     });
+
+    it("should call onJobFailed when job process fails (and not on every attempt)", async () => {
+      const error = new Error("Unexpected");
+      const OnJobFailedMock = vitest.fn();
+      const WorkerHandlerMock = {
+        handle: vitest.fn(() => {
+          throw error;
+        }),
+      };
+      const queueName = "test_queue";
+      const maxRetries = 3;
+      await mysqlQueue.upsertQueue(queueName, { maxRetries });
+      worker = await mysqlQueue.work(queueName, WorkerHandlerMock.handle, 100, undefined, OnJobFailedMock);
+      void worker.start();
+
+      const promise = mysqlQueue.getJobExecutionPromise(queueName, maxRetries);
+      mysqlQueue.enqueue(queueName, { name: "1", payload: {} });
+      await promise;
+
+      expect(OnJobFailedMock).toHaveBeenCalledTimes(1);
+      expect(OnJobFailedMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          attempts: 3,
+          completedAt: null,
+          failedAt: expect.any(Date),
+          latestFailureReason: "Unexpected",
+          queueName: "test_queue",
+          status: "failed",
+        }),
+        error,
+      );
+    });
   });
 });
 
