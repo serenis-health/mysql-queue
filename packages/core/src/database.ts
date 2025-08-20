@@ -87,10 +87,8 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     async endPool() {
       await pool.end();
     },
-    async getJobById(jobId: string) {
-      const [rows] = await runWithPoolConnection((connection) =>
-        connection.query<RowDataPacket[]>(`SELECT * FROM ${jobsTable()} WHERE id = ?`, [jobId]),
-      );
+    async getJobById(connection: PoolConnection, jobId: string) {
+      const [rows] = await connection.query<RowDataPacket[]>(`SELECT * FROM ${jobsTable()} WHERE id = ?`, [jobId]);
       return rows.length ? rows[0] : null;
     },
     async getPendingJobs(connection: PoolConnection, queueId: string, batchSize: number) {
