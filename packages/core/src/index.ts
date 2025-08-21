@@ -1,14 +1,4 @@
-import {
-  EnqueueParams,
-  JobForInsert,
-  JobWithQueueName,
-  Options,
-  Queue,
-  RetrieveQueueParams,
-  Session,
-  UpsertQueueParams,
-  WorkerCallback,
-} from "./types";
+import { EnqueueParams, JobForInsert, Options, Queue, RetrieveQueueParams, Session, UpsertQueueParams, WorkerCallback } from "./types";
 import { Database } from "./database";
 import { Logger } from "./logger";
 import { randomUUID } from "node:crypto";
@@ -105,7 +95,7 @@ export function MysqlQueue(options: Options) {
       callback: WorkerCallback,
       pollingIntervalMs = 500,
       batchSize = 1,
-      onJobFailed?: (job: JobWithQueueName, error: Error) => void,
+      onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void,
     ) {
       const queue = await retrieveQueue({ name: queueName });
       return workersFactory.create(callback, pollingIntervalMs, batchSize, queue, onJobFailed);

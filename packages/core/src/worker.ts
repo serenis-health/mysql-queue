@@ -15,7 +15,7 @@ export function WorkersFactory(logger: Logger, database: Database) {
       pollingIntervalMs = 500,
       batchSize = 1,
       queue: Queue,
-      onJobFailed?: (job: JobWithQueueName, error: Error) => void,
+      onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void,
     ) {
       const worker = Worker(
         callback,
@@ -64,7 +64,7 @@ export function Worker(
   database: Database,
   queue: Queue,
   onJobProcessed?: (job: JobWithQueueName) => void,
-  onJobFailed?: (job: JobWithQueueName, error: Error) => void,
+  onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void,
 ) {
   const workerId = randomUUID();
   const wLogger = logger.child({ workerId });

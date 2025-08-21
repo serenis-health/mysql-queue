@@ -187,21 +187,13 @@ describe("workers", () => {
       void worker.start();
 
       const promise = mysqlQueue.getJobExecutionPromise(queueName, maxRetries);
-      mysqlQueue.enqueue(queueName, { name: "1", payload: {} });
+      const {
+        jobIds: [jobId],
+      } = await mysqlQueue.enqueue(queueName, { name: "1", payload: {} });
       await promise;
 
       expect(OnJobFailedMock).toHaveBeenCalledTimes(1);
-      expect(OnJobFailedMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          attempts: 3,
-          completedAt: null,
-          failedAt: expect.any(Date),
-          latestFailureReason: "Unexpected",
-          queueName: "test_queue",
-          status: "failed",
-        }),
-        error,
-      );
+      expect(OnJobFailedMock).toHaveBeenCalledWith(error, { id: jobId, queueName });
     });
   });
 });
