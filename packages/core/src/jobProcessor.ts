@@ -11,7 +11,7 @@ export function JobProcessor(
   queue: Queue,
   callback: WorkerCallback,
   onJobProcessed?: (job: JobWithQueueName) => void,
-  onJobFailed?: (job: JobWithQueueName, error: Error) => void,
+  onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void,
 ) {
   return {
     async processBatch(batchSize = 1, workerAbortSignal: AbortSignal) {
@@ -112,10 +112,7 @@ export function JobProcessor(
     } else {
       await database.markJobAsFailed(connection, job.id, truncateStr(typedError.message, 85), job.attempts);
       logger.error({ error: errorToJson(typedError), jobId: job.id }, `jobProcessor.process.markedAsFailed`);
-      if (onJobFailed) {
-        const updated = (await database.getJobById(connection, job.id)) as Job;
-        onJobFailed({ ...updated, queueName: queue.name }, typedError);
-      }
+      onJobFailed?.(typedError, { id: job.id, queueName: queue.name });
     }
   }
 }
