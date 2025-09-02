@@ -1,6 +1,6 @@
 {
   "name": "@serenis/mysql-queue-monorepo",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "lint": "eslint --fix . && prettier --write .",
