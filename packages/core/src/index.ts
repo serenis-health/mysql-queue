@@ -4,7 +4,8 @@ import { Logger } from "./logger";
 import { randomUUID } from "node:crypto";
 import { WorkersFactory } from "./worker";
 
-export function MysqlQueue(options: Options) {
+export function MysqlQueue(_options: Options) {
+  const options = applyOptionsDefault(_options);
   const logger = Logger({
     level: options.loggingLevel,
     prettyPrint: options.loggingPrettyPrint,
@@ -15,18 +16,9 @@ export function MysqlQueue(options: Options) {
   });
   const workersFactory = WorkersFactory(logger, database);
 
-  async function retrieveQueue(params: RetrieveQueueParams) {
-    const queue = await database.getQueueByName(params.name);
-    if (!queue) throw new Error(`Queue with name ${params.name} not found`);
-
-    return queue as Queue;
-  }
-
   return {
-    async destroy() {
-      logger.debug("destroying");
-      await database.removeAllTables();
-      logger.info("destroyed");
+    async countJobs(queueName: string) {
+      return database.countJobs(queueName, options.partitionKey);
     },
     async dispose() {
       logger.debug("disposing");
@@ -52,20 +44,33 @@ export function MysqlQueue(options: Options) {
         };
       });
 
-      await database.addJobs(queueName, jobsForInsert, session);
+      await database.addJobs(queueName, jobsForInsert, options.partitionKey, session);
       logger.debug({ jobs: jobsForInsert }, "enqueue.jobsAddedToQueue");
       logger.info({ jobCount: jobsForInsert.length }, "enqueue.jobsAddedToQueue");
       return { jobIds: jobsForInsert.map((j) => j.id) };
     },
     getJobExecutionPromise: workersFactory.getJobExecutionPromise,
-    async initialize() {
+    async globalDestroy() {
+      logger.debug("destroying");
+      await database.removeAllTables();
+      logger.info("destroyed");
+    },
+    async globalInitialize() {
       logger.debug("starting");
       await database.runMigrations();
       logger.info("started");
     },
     jobsTable: database.jobsTable,
     migrationTable: database.migrationsTable,
+    async purge() {
+      logger.debug({ partitionKey: options.partitionKey }, "purging");
+
+      await workersFactory.stopAll();
+      await database.deleteQueuesByPartition(options.partitionKey);
+      logger.info({ partitionKey: options.partitionKey }, "purged");
+    },
     queuesTable: database.queuesTable,
+    retrieveQueue,
     async upsertQueue(name: string, params: UpsertQueueParams = {}) {
       const queueWithoutId: Omit<Queue, "id"> = {
         backoffMultiplier: params.backoffMultiplier && params.backoffMultiplier > 0 ? params.backoffMultiplier : 2,
@@ -73,10 +78,11 @@ export function MysqlQueue(options: Options) {
         maxRetries: params.maxRetries || 3,
         minDelayMs: params.minDelayMs || 1000,
         name,
+        partitionKey: options.partitionKey,
       };
 
       let id: string;
-      const existingQueue = await database.getQueueIdByName(name);
+      const existingQueue = await database.getQueueIdByName(name, options.partitionKey);
       if (existingQueue) {
         id = existingQueue.id;
         await database.updateQueue({ id, ...queueWithoutId });
@@ -101,8 +107,22 @@ export function MysqlQueue(options: Options) {
       return workersFactory.create(callback, pollingIntervalMs, batchSize, queue, onJobFailed);
     },
   };
+
+  async function retrieveQueue(params: RetrieveQueueParams) {
+    const queue = await database.getQueueByName(params.name, options.partitionKey);
+    if (!queue) throw new Error(`Queue with name ${params.name}:${options.partitionKey} not found`);
+
+    return queue as Queue;
+  }
 }
 
 export type MysqlQueue = ReturnType<typeof MysqlQueue>;
 
-export { Session, Job } from "./types";
+export { Session, Job, PurgePartitionParams } from "./types";
+
+function applyOptionsDefault(options: Options) {
+  return {
+    ...options,
+    partitionKey: options.partitionKey ?? "default",
+  };
+}

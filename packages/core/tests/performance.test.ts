@@ -17,12 +17,12 @@ describe("Performance", () => {
   });
 
   afterEach(async () => {
-    await mysqlQueue.destroy();
+    await mysqlQueue.globalDestroy();
     await mysqlQueue.dispose();
   });
 
   beforeEach(async () => {
-    await mysqlQueue.initialize();
+    await mysqlQueue.globalInitialize();
   });
 
   it("should handle 1000 jobs in less than 5 seconds (with 10 workers)", async () => {

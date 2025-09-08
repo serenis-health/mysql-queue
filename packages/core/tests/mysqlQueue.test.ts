@@ -17,7 +17,7 @@ describe("mysqlQueue", () => {
 
   describe("initialize", () => {
     it("should apply migrations", async () => {
-      await instance.initialize();
+      await instance.globalInitialize();
 
       const rows = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.migrationTable()};`);
       expect(rows).toEqual([
@@ -31,23 +31,28 @@ describe("mysqlQueue", () => {
           id: 2,
           name: "create-jobs-table",
         },
+        {
+          applied_at: expect.any(Date),
+          id: 3,
+          name: "add-partition-key",
+        },
       ]);
     });
 
     it("should create tables", async () => {
-      await instance.initialize();
+      await instance.globalInitialize();
 
       const rows = await queryDatabase.query<RowDataPacket[]>("SHOW TABLES;");
       const tableNames = rows.map((row) => row.Tables_in_serenis);
       expect(tableNames).toEqual(expect.arrayContaining([instance.jobsTable(), instance.migrationTable(), instance.queuesTable()]));
 
-      await instance.destroy();
+      await instance.globalDestroy();
     });
   });
 
   describe("destroy", () => {
     beforeEach(async () => {
-      await instance.initialize();
+      await instance.globalInitialize();
       await queryDatabase.query(`CREATE TABLE IF NOT EXISTS another_table (id INT AUTO_INCREMENT PRIMARY KEY);`);
     });
 
@@ -56,7 +61,7 @@ describe("mysqlQueue", () => {
     });
 
     it("should remove all tables", async () => {
-      await instance.destroy();
+      await instance.globalDestroy();
 
       const rows = await queryDatabase.query<RowDataPacket[]>("SHOW TABLES;");
       const tableNames = rows.map((row) => row.Tables_in_serenis);
@@ -66,11 +71,11 @@ describe("mysqlQueue", () => {
 
   describe("upsertQueue", () => {
     beforeAll(async () => {
-      await instance.initialize();
+      await instance.globalInitialize();
     });
 
     afterAll(async () => {
-      await instance.destroy();
+      await instance.globalDestroy();
     });
 
     it("should create a row in mysql_queue_queues", async () => {
@@ -87,6 +92,7 @@ describe("mysqlQueue", () => {
         maxRetries: 3,
         minDelayMs: 1000,
         name: "test_queue",
+        partitionKey: "default",
       });
     });
 
@@ -110,6 +116,7 @@ describe("mysqlQueue", () => {
         maxRetries: 5,
         minDelayMs: 2000,
         name: "test_queue",
+        partitionKey: "default",
       });
     });
 
@@ -148,12 +155,12 @@ describe("mysqlQueue", () => {
     const queueName = "test_queue";
 
     beforeEach(async () => {
-      await instance.initialize();
+      await instance.globalInitialize();
       await instance.upsertQueue(queueName);
     });
 
     afterEach(async () => {
-      await instance.destroy();
+      await instance.globalDestroy();
     });
 
     describe("without session", () => {
@@ -325,12 +332,12 @@ describe("mysqlQueue", () => {
     const queueName = "test_queue";
 
     beforeEach(async () => {
-      await instance.initialize();
+      await instance.globalInitialize();
       await instance.upsertQueue(queueName, { maxRetries: 1 });
     });
 
     afterEach(async () => {
-      await instance.destroy();
+      await instance.globalDestroy();
     });
 
     it("should fail job after attempts", async () => {
