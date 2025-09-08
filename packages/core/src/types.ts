@@ -6,6 +6,7 @@ export interface Options {
   loggingPrettyPrint?: boolean;
   maxPayloadSizeKb?: number;
   tablesPrefix?: string;
+  partitionKey?: string;
 }
 
 export interface Queue {
@@ -15,6 +16,7 @@ export interface Queue {
   minDelayMs: number;
   backoffMultiplier: number;
   maxDurationMs: number;
+  partitionKey: string;
 }
 
 export interface Job {
@@ -64,6 +66,10 @@ export interface AddParams {
 }
 
 export type EnqueueParams = AddParams | AddParams[];
+
+export interface PurgePartitionParams {
+  partitionKey: string;
+}
 
 export type DbCreateQueueParams = Queue;
 export type DbUpdateQueueParams = Queue;

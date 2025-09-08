@@ -16,11 +16,11 @@ describe("workers", () => {
       loggingLevel: "fatal",
       tablesPrefix: `${randomUUID().slice(-4)}_`,
     });
-    await mysqlQueue.initialize();
+    await mysqlQueue.globalInitialize();
   });
 
   afterEach(async () => {
-    await mysqlQueue.destroy();
+    await mysqlQueue.globalDestroy();
     await mysqlQueue.dispose();
   });
 
