@@ -31,6 +31,11 @@ describe("mysqlQueue", () => {
           id: 2,
           name: "create-jobs-table",
         },
+        {
+          applied_at: expect.any(Date),
+          id: 3,
+          name: "add-partition-key",
+        },
       ]);
     });
 
@@ -87,6 +92,7 @@ describe("mysqlQueue", () => {
         maxRetries: 3,
         minDelayMs: 1000,
         name: "test_queue",
+        partitionKey: "default",
       });
     });
 
@@ -110,6 +116,7 @@ describe("mysqlQueue", () => {
         maxRetries: 5,
         minDelayMs: 2000,
         name: "test_queue",
+        partitionKey: "default",
       });
     });
 
