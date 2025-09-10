@@ -9,7 +9,7 @@ export default tseslint.config(
   eslint.configs.recommended,
   tseslint.configs.recommended,
   cspellESLintPluginRecommended,
-  globalIgnores(["**/dist/**"]),
+  globalIgnores(["**/dist/**", "lerna.json"]),
   {
     rules: {
       "@cspell/spellchecker": ["error", {}],
