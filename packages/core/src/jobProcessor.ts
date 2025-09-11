@@ -20,59 +20,83 @@ export function JobProcessor(
         return;
       }
 
-      await database.runWithPoolConnection(async (connection) => {
-        const transactionId = randomUUID();
-        const start = Date.now();
-        try {
-          await connection.query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
-          await connection.beginTransaction();
-          const jobs = (await database.getPendingJobs(connection, queue.id, batchSize)) as Job[];
-          if (jobs.length === 0) {
-            await connection.commit();
-            return;
-          }
-          const jobIds = jobs.map((job) => job.id);
-          const jobCount = jobs.length;
-          logger.debug({ jobCount, jobIds, transactionId }, `jobProcessor.processBatch.pendingJobsFound`);
+      const callbackAbortControllers = new Map<string, AbortController>();
 
-          const BATCH_SIZE = 10;
-          for (let i = 0; i < jobs.length; i += BATCH_SIZE) {
-            const batch = jobs.slice(i, i + BATCH_SIZE);
-            await Promise.all(batch.map((job) => executeCallbackAndHandleStatusUpdate(job, workerAbortSignal, connection)));
-          }
-
-          await connection.commit();
-          const elapsedSeconds = (Date.now() - start) / 1000;
-          logger.debug({ elapsedSeconds, jobCount, jobIds, transactionId }, `jobProcessor.processBatch.committed`);
-          jobs.forEach((j) => onJobProcessed?.({ ...j, queueName: queue.name }));
-        } catch (error: unknown) {
-          await connection.rollback();
-          const typedError = error as Error;
-          logger.error({ error: errorToJson(typedError), transactionId }, `jobProcessor.processBatch.error`);
-          throw error;
+      function onWorkerAbort() {
+        logger.warn("jobProcessor.processBatch.workerAborted");
+        for (const controller of callbackAbortControllers.values()) {
+          controller.abort();
         }
-      });
+        callbackAbortControllers.clear();
+      }
+
+      workerAbortSignal.addEventListener("abort", onWorkerAbort);
+
+      try {
+        if (workerAbortSignal.aborted) return;
+        await database.runWithPoolConnection(async (connection) => {
+          const transactionId = randomUUID();
+          const start = Date.now();
+          try {
+            await connection.query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
+            await connection.beginTransaction();
+            const jobs = (await database.getPendingJobs(connection, queue.id, batchSize)) as Job[];
+            if (jobs.length === 0) {
+              await connection.commit();
+              return;
+            }
+            const jobIds = jobs.map((job) => job.id);
+            const jobCount = jobs.length;
+            logger.debug({ jobCount, jobIds, transactionId }, `jobProcessor.processBatch.pendingJobsFound`);
+
+            const BATCH_SIZE = 10;
+            for (let i = 0; i < jobs.length; i += BATCH_SIZE) {
+              const batch = jobs.slice(i, i + BATCH_SIZE);
+              await Promise.all(
+                batch.map((job) => executeCallbackAndHandleStatusUpdate(job, workerAbortSignal, connection, callbackAbortControllers)),
+              );
+            }
+
+            await connection.commit();
+            const elapsedSeconds = (Date.now() - start) / 1000;
+            logger.debug({ elapsedSeconds, jobCount, jobIds, transactionId }, `jobProcessor.processBatch.committed`);
+            jobs.forEach((j) => onJobProcessed?.({ ...j, queueName: queue.name }));
+          } catch (error: unknown) {
+            const typedError = error as Error;
+            logger.error({ error: errorToJson(typedError), transactionId }, `jobProcessor.processBatch.error`);
+            await connection.rollback();
+            throw error;
+          }
+        });
+      } finally {
+        workerAbortSignal.removeEventListener("abort", onWorkerAbort);
+      }
     },
   };
 
-  async function executeCallbackAndHandleStatusUpdate(job: Job, workerAbortSignal: AbortSignal, connection: PoolConnection) {
+  async function executeCallbackAndHandleStatusUpdate(
+    job: Job,
+    workerAbortSignal: AbortSignal,
+    connection: PoolConnection,
+    callbackAbortControllers: Map<string, AbortController>,
+  ) {
     try {
-      await executeCallbackWithTimeout(connection, job, workerAbortSignal);
+      await executeCallbackWithTimeout(connection, job, workerAbortSignal, callbackAbortControllers);
     } catch (error: unknown) {
       await handleCallbackError(error, connection, job, workerAbortSignal);
     }
   }
 
-  async function executeCallbackWithTimeout(connection: PoolConnection, job: Job, workerAbortSignal: AbortSignal) {
+  async function executeCallbackWithTimeout(
+    connection: PoolConnection,
+    job: Job,
+    workerAbortSignal: AbortSignal,
+    callbackAbortControllers: Map<string, AbortController>,
+  ) {
     const callbackAbortController = new AbortController();
     let timeoutId: NodeJS.Timeout;
 
-    function onWorkerAbort() {
-      callbackAbortController.abort();
-      if (timeoutId) clearTimeout(timeoutId);
-      logger.warn({ jobId: job.id }, `jobProcessor.process.abortedDueWorkerAbort`);
-    }
-    workerAbortSignal.addEventListener("abort", onWorkerAbort);
+    callbackAbortControllers.set(job.id, callbackAbortController);
 
     const callbackPromise = callback(job, callbackAbortController.signal, connection as unknown as Session);
     const timeoutPromise = new Promise((_, reject) => {
@@ -85,7 +109,7 @@ export function JobProcessor(
 
     await Promise.race([callbackPromise, timeoutPromise]).finally(() => {
       clearTimeout(timeoutId);
-      workerAbortSignal.removeEventListener("abort", onWorkerAbort);
+      callbackAbortControllers.delete(job.id);
     });
     await database.markJobAsCompleted(connection, job.id, job.attempts);
     logger.debug({ jobId: job.id }, `jobProcessor.process.markedJobAsCompleted`);
