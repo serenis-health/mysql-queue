@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Clone repository
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - if: ${{ contains('["gtoselli"]', github.actor) != true }}
         name: Exit early when current actor is not allowed to push new release
