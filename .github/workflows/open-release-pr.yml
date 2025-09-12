@@ -1,0 +1,70 @@
+name: 🏷️ Open release pr
+
+on:
+  workflow_dispatch:
+    inputs:
+      dryrun:
+        type: boolean
+        description: Dry-Run
+
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
+
+jobs:
+  deploy-npm-latest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - if: ${{ contains('["gtoselli"]', github.actor) != true }}
+        name: Exit early when current actor is not allowed to push new release
+        run: |
+          echo "Error: Your GitHub username (${{ github.actor }}) is not on the allowed list of admins for this workflow"
+          exit 1
+
+      - name: Install dependencies
+        uses: ./.github/actions/setup
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Lerna Version 🏷️
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true
+        run: |
+          git config --global user.name "Gabriele Toselli"
+          git config --global user.email "toselli.gabriele@gmail.com"
+          echo "@serenis:registry=https://registry.npmjs.org/" >> ~/.npmrc
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> ~/.npmrc
+
+          pnpm whoami
+
+          RELEASE_BRANCH="release"
+          BASE_BRANCH="main"
+          if git show-ref --verify --quiet refs/heads/$RELEASE_BRANCH; then
+            git branch -D $RELEASE_BRANCH
+          fi
+
+          if git ls-remote --exit-code --heads origin $RELEASE_BRANCH; then
+            git push origin --delete $RELEASE_BRANCH
+          fi
+
+          git checkout -b $RELEASE_BRANCH
+          git push -u origin $RELEASE_BRANCH
+
+          if ${{inputs.dryrun == true }}
+          then
+              pnpm lerna version --conventional-commits --yes --dry-run --allow-branch $RELEASE_BRANCH
+          elif ${{inputs.dryrun != true}}
+          then
+              echo "LERNA_VERSION_TYPE=🚀 Prod Version" >> $GITHUB_ENV
+              pnpm lerna version --conventional-commits --yes --allow-branch $RELEASE_BRANCH
+          fi
