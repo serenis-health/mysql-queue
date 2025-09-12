@@ -96,3 +96,5 @@ await worker.stop(); // stop consuming jobs
 await mysqlQueue.dispose(); // gracefully shutdown database and workers
 await mysqlQueue.destroy(); // remove all queues and jobs and drop the database
 ```
+
+_Created with inspiration from [pg-boss](https://github.com/timgit/pg-boss), thanks Tim!_
