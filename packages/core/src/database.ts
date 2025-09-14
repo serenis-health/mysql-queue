@@ -215,37 +215,51 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       }
     },
     async runMigrations() {
+      const lockName = `mysql_queue_migrations_${options.tablesPrefix || "default"}`;
+      const lockTimeout = 10;
+
       const connection = await pool.getConnection();
-      await connection.beginTransaction();
       try {
-        const [migrationTableRows] = await connection.query<RowDataPacket[]>(`SHOW TABLES like '${migrationsTable()}'`);
-        if (!migrationTableRows.length) {
-          await connection.query(`
-          CREATE TABLE IF NOT EXISTS ${migrationsTable()} (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          name VARCHAR(255) NOT NULL UNIQUE,
-          applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          INDEX idx_name (name)
-        )`);
+        const [lockResult] = await connection.query<RowDataPacket[]>("SELECT GET_LOCK(?, ?) as lock_acquired", [lockName, lockTimeout]);
+        if (!lockResult[0]?.lock_acquired) {
+          logger.info(`Migrations skipped - another instance is currently running migrations`);
+          return;
         }
 
-        const [appliedMigrationsRows] = await connection.query<RowDataPacket[]>(`SELECT name FROM ${migrationsTable()}`);
-        const appliedMigrations = new Set(appliedMigrationsRows.map((row) => row.name));
-
-        for (const migration of migrations) {
-          if (!appliedMigrations.has(migration.name)) {
-            await connection.query(migration.up);
-            await connection.query(`INSERT INTO ${migrationsTable()} (name) VALUES (?)`, [migration.name]);
-            logger.debug(`Applied up migration ${migration.name}`);
+        await connection.beginTransaction();
+        try {
+          const [migrationTableRows] = await connection.query<RowDataPacket[]>(`SHOW TABLES like '${migrationsTable()}'`);
+          if (!migrationTableRows.length) {
+            await connection.query(`
+            CREATE TABLE IF NOT EXISTS ${migrationsTable()} (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(255) NOT NULL UNIQUE,
+            applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_name (name)
+          )`);
           }
-        }
 
-        await connection.commit();
+          const [appliedMigrationsRows] = await connection.query<RowDataPacket[]>(`SELECT name FROM ${migrationsTable()}`);
+          const appliedMigrations = new Set(appliedMigrationsRows.map((row) => row.name));
+
+          for (const migration of migrations) {
+            if (!appliedMigrations.has(migration.name)) {
+              await connection.query(migration.up);
+              await connection.query(`INSERT INTO ${migrationsTable()} (name) VALUES (?)`, [migration.name]);
+              logger.debug(`Applied up migration ${migration.name}`);
+            }
+          }
+
+          await connection.commit();
+        } catch (error) {
+          await connection.rollback();
+          throw error;
+        }
       } catch (error) {
-        await connection.rollback();
         logger.error("Migration up failed", error);
         throw error;
       } finally {
+        await connection.query("SELECT RELEASE_LOCK(?)", [lockName]);
         pool.releaseConnection(connection);
       }
       logger.info("Migrations completed");
