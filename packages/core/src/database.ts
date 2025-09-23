@@ -163,16 +163,15 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       return rows.length ? (rows[0] as { id: string }) : null;
     },
     async incrementJobAttempts(connection: PoolConnection, jobId: string, error: string, currentAttempts: number, startAfter: Date) {
-      await connection.execute(`UPDATE ${jobsTable()} SET attempts = ?, latestFailureReason = ?, startAfter = ? WHERE id = ?`, [
-        currentAttempts + 1,
-        error,
-        startAfter,
-        jobId,
-      ]);
+      await executeWithFallback(
+        connection,
+        `UPDATE ${jobsTable()} SET attempts = ?, latestFailureReason = ?, startAfter = ? WHERE id = ?`,
+        [currentAttempts + 1, error, startAfter, jobId],
+      );
     },
     jobsTable,
     async markJobAsCompleted(connection: PoolConnection, jobId: string, currentAttempts: number) {
-      await connection.execute(`UPDATE ${jobsTable()} SET attempts = ?, status = ?, completedAt = ? WHERE id = ?`, [
+      await executeWithFallback(connection, `UPDATE ${jobsTable()} SET attempts = ?, status = ?, completedAt = ? WHERE id = ?`, [
         currentAttempts + 1,
         "completed",
         new Date(),
@@ -180,13 +179,11 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       ]);
     },
     async markJobAsFailed(connection: PoolConnection, jobId: string, error: string, currentAttempts: number) {
-      await connection.execute(`UPDATE ${jobsTable()} SET attempts = ?, status = ?, failedAt = ?, latestFailureReason = ? WHERE id = ?`, [
-        currentAttempts + 1,
-        "failed",
-        new Date(),
-        error,
-        jobId,
-      ]);
+      await executeWithFallback(
+        connection,
+        `UPDATE ${jobsTable()} SET attempts = ?, status = ?, failedAt = ?, latestFailureReason = ? WHERE id = ?`,
+        [currentAttempts + 1, "failed", new Date(), error, jobId],
+      );
     },
     migrationsTable,
     queuesTable,
@@ -284,4 +281,22 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
   function jobsTable() {
     return TABLES_NAME_PREFIX + (options.tablesPrefix || "") + "jobs";
   }
+
+  async function executeWithFallback(connection: PoolConnection, sql: string, params: unknown[]) {
+    try {
+      await connection.execute(sql, params);
+    } catch (error: unknown) {
+      if (isConnectionClosed(error)) {
+        return await runWithPoolConnection(async (freshConnection) => {
+          return await freshConnection.execute(sql, params);
+        });
+      }
+      throw error;
+    }
+  }
+}
+
+export function isConnectionClosed(error: unknown) {
+  const typedError = error as Error;
+  return typedError.message.includes("closed state");
 }

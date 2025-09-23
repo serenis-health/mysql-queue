@@ -112,7 +112,7 @@ describe("workers", () => {
       });
     }, 10_000);
 
-    it("should abort handling if handler exceeds max duration", async () => {
+    it("should abort handling if handler exceeds max duration always", async () => {
       const Worker1HandlerMock = {
         handle: vitest.fn().mockImplementation(async () => {
           await sleep(2000);
@@ -134,6 +134,27 @@ describe("workers", () => {
         status: "failed",
       });
     }, 10_000);
+
+    it("should abort handling if handler exceeds max duration only first attempt", async () => {
+      const Worker1HandlerMock = {
+        handle: vitest.fn().mockImplementationOnce(async () => await sleep(2000)),
+      };
+      const queueName = "test_queue";
+      await mysqlQueue.upsertQueue(queueName, { maxDurationMs: 1000, maxRetries: 2 });
+      worker = await mysqlQueue.work(queueName, Worker1HandlerMock.handle, 100);
+      void worker.start();
+
+      const promise = mysqlQueue.getJobExecutionPromise(queueName, 2);
+      await enqueueNJobs(mysqlQueue, queueName, 1);
+      await promise;
+
+      const [rows] = await pool.query<RowDataPacket[]>(`SELECT * from ${mysqlQueue.jobsTable()}`);
+      expect(rows[0]).toMatchObject({
+        completedAt: expect.any(Date),
+        latestFailureReason: "Job execution exceed the timeout of 1000",
+        status: "completed",
+      });
+    });
 
     it("should handle jobs in order of priority", async () => {
       const WorkerHandlerMock = { handle: vitest.fn() };

@@ -1,6 +1,6 @@
+import { Database, isConnectionClosed } from "./database";
 import { errorToJson, truncateStr } from "./utils";
 import { Job, JobWithQueueName, Queue, Session, WorkerCallback } from "./types";
-import { Database } from "./database";
 import { Logger } from "./logger";
 import { PoolConnection } from "mysql2/promise";
 import { randomUUID } from "node:crypto";
@@ -56,15 +56,12 @@ export function JobProcessor(
                 batch.map((job) => executeCallbackAndHandleStatusUpdate(job, workerAbortSignal, connection, callbackAbortControllers)),
               );
             }
-
-            await connection.commit();
-            const elapsedSeconds = (Date.now() - start) / 1000;
-            logger.debug({ elapsedSeconds, jobCount, jobIds, transactionId }, `jobProcessor.processBatch.committed`);
+            await tryCommit(connection, transactionId, start, jobCount, jobIds);
             jobs.forEach((j) => onJobProcessed?.({ ...j, queueName: queue.name }));
           } catch (error: unknown) {
             const typedError = error as Error;
             logger.error({ error: errorToJson(typedError), transactionId }, `jobProcessor.processBatch.error`);
-            await connection.rollback();
+            await tryRollback(connection, transactionId);
             throw error;
           }
         });
@@ -104,6 +101,7 @@ export function JobProcessor(
         callbackAbortController.abort();
         reject(new Error(`Job execution exceed the timeout of ${queue.maxDurationMs}`));
         logger.warn({ jobId: job.id }, `jobProcessor.process.abortedDueTimeout`);
+        connection.destroy();
       }, queue.maxDurationMs);
     });
 
@@ -137,6 +135,32 @@ export function JobProcessor(
       await database.markJobAsFailed(connection, job.id, truncateStr(typedError.message, 85), job.attempts);
       logger.error({ error: errorToJson(typedError), jobId: job.id }, `jobProcessor.process.markedAsFailed`);
       onJobFailed?.(typedError, { id: job.id, queueName: queue.name });
+    }
+  }
+
+  async function tryCommit(connection: PoolConnection, transactionId: string, start: number, jobCount: number, jobIds: string[]) {
+    try {
+      await connection.commit();
+      const elapsedSeconds = (Date.now() - start) / 1000;
+      logger.debug({ elapsedSeconds, jobCount, jobIds, transactionId }, `jobProcessor.processBatch.committed`);
+    } catch (error: unknown) {
+      if (isConnectionClosed(error)) {
+        logger.warn({ error: errorToJson(error as Error), transactionId }, `jobProcessor.processBatch.commitFailed`);
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  async function tryRollback(connection: PoolConnection, transactionId: string) {
+    try {
+      await connection.rollback();
+    } catch (error: unknown) {
+      if (isConnectionClosed(error)) {
+        logger.warn({ error: errorToJson(error as Error), transactionId }, `jobProcessor.processBatch.rollbackFailed`);
+      } else {
+        throw error;
+      }
     }
   }
 }
