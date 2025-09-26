@@ -36,17 +36,19 @@ export function MysqlQueue(_options: Options) {
         return {
           createdAt: now,
           id: randomUUID(),
+          idempotentKey: p.idempotentKey,
           name: p.name,
           payload: payloadStr,
+          pendingDedupKey: p.pendingDedupKey,
           priority: p.priority || 0,
           startAfter: p.startAfter || now,
           status: "pending",
         };
       });
 
-      await database.addJobs(queueName, jobsForInsert, options.partitionKey, session);
-      logger.debug({ jobs: jobsForInsert }, "enqueue.jobsAddedToQueue");
-      logger.info({ jobCount: jobsForInsert.length }, "enqueue.jobsAddedToQueue");
+      const affectedRows = await database.addJobs(queueName, jobsForInsert, options.partitionKey, session);
+      logger.debug({ jobCount: affectedRows, jobs: jobsForInsert }, "enqueue.jobsAddedToQueue");
+      logger.info({ jobCount: affectedRows }, "enqueue.jobsAddedToQueue");
       return { jobIds: jobsForInsert.map((j) => j.id) };
     },
     getJobExecutionPromise: workersFactory.getJobExecutionPromise,
