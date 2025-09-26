@@ -1,9 +1,8 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { MysqlQueue } from "../src";
+import { MysqlQueue, Session } from "../src";
 import { QueryDatabase } from "./utils/queryDatabase";
 import { randomUUID } from "node:crypto";
 import { RowDataPacket } from "mysql2";
-import { Session } from "../src/types";
 
 const dbUri = "mysql://root:password@localhost:3306/serenis";
 
@@ -35,6 +34,16 @@ describe("mysqlQueue", () => {
           applied_at: expect.any(Date),
           id: 3,
           name: "add-partition-key",
+        },
+        {
+          applied_at: expect.any(Date),
+          id: 4,
+          name: "add-idempotent-key",
+        },
+        {
+          applied_at: expect.any(Date),
+          id: 5,
+          name: "add-pending-dedup-key",
         },
       ]);
     });
@@ -179,9 +188,11 @@ describe("mysqlQueue", () => {
           createdAt: expect.any(Date),
           failedAt: null,
           id: expect.any(String),
+          idempotentKey: null,
           latestFailureReason: null,
           name: "test_job",
           payload: { message: "Hello, world!" },
+          pendingDedupKey: null,
           priority: 0,
           queueId: expect.any(String),
           startAfter: expect.any(Date),
@@ -285,9 +296,11 @@ describe("mysqlQueue", () => {
           createdAt: expect.any(Date),
           failedAt: null,
           id: expect.any(String),
+          idempotentKey: null,
           latestFailureReason: null,
           name: "test_job",
           payload: { message: "Hello, world!" },
+          pendingDedupKey: null,
           priority: 0,
           queueId: expect.any(String),
           startAfter: expect.any(Date),
@@ -380,6 +393,150 @@ describe("mysqlQueue", () => {
       });
 
       await worker.stop();
+    });
+  });
+
+  describe("Idempotency & pending deduplication", () => {
+    const queueName = "test_queue";
+
+    beforeEach(async () => {
+      await instance.globalInitialize();
+      await instance.upsertQueue(queueName, { maxRetries: 2 });
+    });
+
+    afterEach(async () => {
+      await instance.globalDestroy();
+    });
+
+    it("should prevent duplicate jobs with same idempotentKey and name", async () => {
+      await instance.enqueue(queueName, {
+        idempotentKey: "user-123-welcome",
+        name: "welcome-email",
+        payload: { userId: 123 },
+      });
+      await instance.enqueue(queueName, {
+        idempotentKey: "user-123-welcome",
+        name: "welcome-email",
+        payload: { userId: 123 },
+      });
+
+      const jobs = await queryDatabase.query<RowDataPacket[]>(
+        `SELECT id, name, idempotentKey, status FROM ${instance.jobsTable()} ORDER BY createdAt`,
+      );
+      expect(jobs).toHaveLength(1);
+    });
+
+    it("should allow different job names with same idempotentKey", async () => {
+      await instance.enqueue(queueName, {
+        idempotentKey: "user-123",
+        name: "welcome-email",
+        payload: { userId: 123 },
+      });
+      await instance.enqueue(queueName, {
+        idempotentKey: "user-123",
+        name: "notification-email",
+        payload: { userId: 123 },
+      });
+
+      const jobs = await queryDatabase.query<RowDataPacket[]>(`SELECT name, idempotentKey FROM ${instance.jobsTable()} ORDER BY name`);
+      expect(jobs).toHaveLength(2);
+    });
+
+    it("should prevent duplicate pending jobs with same pendingDedupKey and name", async () => {
+      await instance.enqueue(queueName, {
+        name: "send-to-sts",
+        payload: { invoiceId: 456 },
+        pendingDedupKey: "invoice-456",
+      });
+      await instance.enqueue(queueName, {
+        name: "send-to-sts",
+        payload: { invoiceId: 456 },
+        pendingDedupKey: "invoice-456",
+      });
+
+      const jobs = await queryDatabase.query<RowDataPacket[]>(
+        `SELECT id, name, pendingDedupKey, status FROM ${instance.jobsTable()} ORDER BY createdAt`,
+      );
+      expect(jobs).toHaveLength(1);
+    });
+
+    it("should allow re-enqueuing after job completion", async () => {
+      const worker = await instance.work(queueName, () => {});
+      void worker.start();
+      const promise = instance.getJobExecutionPromise(queueName, 1);
+      await instance.enqueue(queueName, {
+        name: "send-to-sts",
+        payload: { invoiceId: 789 },
+        pendingDedupKey: "invoice-789",
+      });
+      await promise;
+
+      await instance.enqueue(queueName, {
+        name: "send-to-sts",
+        payload: { invoiceId: 789, retry: true },
+        pendingDedupKey: "invoice-789",
+      });
+
+      const allJobs = await queryDatabase.query<RowDataPacket[]>(
+        `SELECT id, name, pendingDedupKey, status FROM ${instance.jobsTable()} ORDER BY createdAt`,
+      );
+
+      expect(allJobs).toHaveLength(2);
+      expect(allJobs[0].status).toBe("completed");
+      expect(allJobs[1].status).toBe("pending");
+    });
+
+    it("should allow re-enqueuing after job failure", async () => {
+      const worker = await instance.work(queueName, () => {
+        throw new Error();
+      });
+      void worker.start();
+      const promise = instance.getJobExecutionPromise(queueName, 2);
+      await instance.enqueue(queueName, {
+        name: "send-to-sts",
+        payload: { invoiceId: 789 },
+        pendingDedupKey: "invoice-999",
+      });
+      await promise;
+
+      await instance.enqueue(queueName, {
+        name: "send-to-sts",
+        payload: { invoiceId: 999, retry: true },
+        pendingDedupKey: "invoice-999",
+      });
+
+      const allJobs = await queryDatabase.query<RowDataPacket[]>(
+        `SELECT id, name, pendingDedupKey, status FROM ${instance.jobsTable()} ORDER BY createdAt`,
+      );
+
+      expect(allJobs).toHaveLength(2);
+      expect(allJobs[0].status).toBe("failed");
+      expect(allJobs[1].status).toBe("pending");
+      expect(allJobs[0].pendingDedupKey).toBe("invoice-999");
+      expect(allJobs[1].pendingDedupKey).toBe("invoice-999");
+    });
+
+    it("should allow different job names with same pendingDedupKey", async () => {
+      await instance.enqueue(queueName, [
+        {
+          name: "job-a",
+          payload: { entityId: 555 },
+          pendingDedupKey: "entity-555",
+        },
+        {
+          name: "job-b",
+          payload: { entityId: 555 },
+          pendingDedupKey: "entity-555",
+        },
+      ]);
+
+      const jobs = await queryDatabase.query<RowDataPacket[]>(`SELECT name, pendingDedupKey FROM ${instance.jobsTable()} ORDER BY name`);
+
+      expect(jobs).toHaveLength(2);
+      expect(jobs[0].name).toBe("job-a");
+      expect(jobs[1].name).toBe("job-b");
+      expect(jobs[0].pendingDedupKey).toBe("entity-555");
+      expect(jobs[1].pendingDedupKey).toBe("entity-555");
     });
   });
 });

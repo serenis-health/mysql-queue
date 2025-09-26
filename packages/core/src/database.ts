@@ -60,6 +60,30 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
         ALTER TABLE ${queuesTable()} ADD UNIQUE INDEX idx_name_partition (name, partitionKey);
       `,
     },
+    {
+      down: `
+        ALTER TABLE ${jobsTable()} DROP INDEX idx_queue_name_idempotent;
+        ALTER TABLE ${jobsTable()} DROP COLUMN idempotentKey;
+      `,
+      name: "add-idempotent-key",
+      number: 4,
+      up: `
+        ALTER TABLE ${jobsTable()} ADD COLUMN idempotentKey VARCHAR(255) NULL;
+        ALTER TABLE ${jobsTable()} ADD UNIQUE INDEX idx_queue_name_idempotent (queueId, name, idempotentKey);
+      `,
+    },
+    {
+      down: `
+        ALTER TABLE ${jobsTable()} DROP INDEX idx_queue_name_pending_dedup;
+        ALTER TABLE ${jobsTable()} DROP COLUMN pendingDedupKey;
+      `,
+      name: "add-pending-dedup-key",
+      number: 5,
+      up: `
+        ALTER TABLE ${jobsTable()} ADD COLUMN pendingDedupKey VARCHAR(255) NULL;
+        ALTER TABLE ${jobsTable()} ADD UNIQUE INDEX idx_queue_name_pending_dedup (queueId, name, pendingDedupKey, status);
+      `,
+    },
   ];
 
   async function runWithPoolConnection<T>(cb: (connection: PoolConnection) => Promise<T>) {
@@ -75,26 +99,43 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     async addJobs(queueName: string, params: DbAddJobsParams, partitionKey: string, session?: Session) {
       if (params.length === 0) return;
       const values = [
-        ...params.flatMap((j) => [j.id, j.name, j.payload, j.status, j.priority, j.startAfter, j.createdAt]),
+        ...params.flatMap((j) => [
+          j.id,
+          j.name,
+          j.payload,
+          j.status,
+          j.priority,
+          j.startAfter,
+          j.createdAt,
+          j.idempotentKey,
+          j.pendingDedupKey,
+        ]),
         queueName,
         partitionKey,
       ];
 
       const sql = `
-          INSERT INTO ${jobsTable()} (id, name, payload, status, priority, startAfter, createdAt, queueId)
-          SELECT j.*, q.id FROM (SELECT ? AS id, ? AS name, ? AS payload, ? AS status, ? AS priority, ? AS startAfter, ? AS createdAt ${params
+          INSERT INTO ${jobsTable()} (id, name, payload, status, priority, startAfter, createdAt, idempotentKey, pendingDedupKey, queueId)
+          SELECT j.*, q.id FROM (SELECT ? AS id, ? AS name, ? AS payload, ? AS status, ? AS priority, ? AS startAfter, ? AS createdAt, ? AS idempotentKey, ? AS pendingDedupKey ${params
             .slice(1)
-            .map(() => "UNION ALL SELECT ?, ?, ?, ?, ?, ?, ?")
+            .map(() => "UNION ALL SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?")
             .join(" ")}) AS j
           JOIN ${queuesTable()} q ON q.name = ? AND q.partitionKey = ?
         `;
 
-      const result: object[] = session ? await session.execute(sql, values) : await runWithPoolConnection((c) => c.query(sql, values));
+      let result: object[];
+      try {
+        result = session ? await session.execute(sql, values) : await runWithPoolConnection((c) => c.query(sql, values));
+      } catch (e) {
+        if (isMysqlError(e) && e.code === "ER_DUP_ENTRY") return;
+        throw e;
+      }
 
       if (!Array.isArray(result)) throw new Error("Session did not return an array");
       if (result.length === 0) throw new Error("Session returned an empty array");
       if (!("affectedRows" in result[0])) throw new Error("Session did not return affected rows");
       if (result[0].affectedRows === 0) throw new Error("Unable to add jobs, maybe queue does not exist");
+      return result[0].affectedRows;
     },
     async countJobs(queueName: string, partitionKey: string) {
       const [rows] = await runWithPoolConnection((connection) =>
@@ -283,5 +324,9 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
   }
   function jobsTable() {
     return TABLES_NAME_PREFIX + (options.tablesPrefix || "") + "jobs";
+  }
+
+  function isMysqlError(e: unknown): e is { code: string; errno: number } {
+    return typeof e === "object" && e !== null && "code" in e && "errno" in e;
   }
 }

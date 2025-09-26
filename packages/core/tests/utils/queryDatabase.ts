@@ -13,10 +13,10 @@ export function QueryDatabase(params: { dbUri: string }) {
       await pool.end();
     },
     pool,
-    async query<T extends QueryResult>(sql: string) {
+    async query<T extends QueryResult>(sql: string, parameters?: unknown[]) {
       const connection = await pool.getConnection();
       try {
-        const [rows] = await connection.query<T>(sql);
+        const [rows] = await connection.query<T>(sql, parameters);
         return rows;
       } finally {
         connection.release();
