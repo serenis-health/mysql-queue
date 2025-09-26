@@ -89,7 +89,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
           JOIN ${queuesTable()} q ON q.name = ? AND q.partitionKey = ?
         `;
 
-      const result: object[] = session ? await session.query(sql, values) : await runWithPoolConnection((c) => c.query(sql, values));
+      const result: object[] = session ? await session.execute(sql, values) : await runWithPoolConnection((c) => c.query(sql, values));
 
       if (!Array.isArray(result)) throw new Error("Session did not return an array");
       if (result.length === 0) throw new Error("Session returned an empty array");
