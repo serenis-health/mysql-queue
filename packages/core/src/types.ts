@@ -76,5 +76,6 @@ export type DbUpdateQueueParams = Queue;
 export type DbAddJobsParams = JobForInsert[];
 
 export type Session = {
-  query: (sql: string, parameters: unknown[]) => Promise<[{ affectedRows: number }]>;
+  query: <TRow = unknown>(sql: string, parameters: unknown[]) => Promise<TRow[]>;
+  execute: (sql: string, parameters: unknown[]) => Promise<[{ affectedRows: number }]>;
 };

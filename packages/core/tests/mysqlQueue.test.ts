@@ -250,12 +250,19 @@ describe("mysqlQueue", () => {
 
     describe("with session", () => {
       const session: Session = {
-        async query(sql, parameters) {
+        async execute(sql, parameters) {
           const connection = await queryDatabase.pool.getConnection();
           const result = await connection.query(sql, parameters);
           connection.release();
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           return [{ affectedRows: (result[0] as any).affectedRows }];
+        },
+        async query(sql, parameters) {
+          const connection = await queryDatabase.pool.getConnection();
+          const [result] = await connection.query(sql, parameters);
+          connection.release();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          return result as any[];
         },
       };
 
@@ -305,12 +312,19 @@ describe("mysqlQueue", () => {
 
       it("should throw case session not return affectedRows", async () => {
         const wrongSession: Session = {
-          async query(sql, parameters) {
+          async execute(sql, parameters) {
             const connection = await queryDatabase.pool.getConnection();
             await connection.query(sql, parameters);
             connection.release();
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             return [{} as any];
+          },
+          async query(sql, parameters) {
+            const connection = await queryDatabase.pool.getConnection();
+            const [result] = await connection.query(sql, parameters);
+            connection.release();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            return result as any[];
           },
         };
 
