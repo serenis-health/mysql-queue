@@ -62,11 +62,11 @@ jobs:
 
           if ${{inputs.dryrun == true }}
           then
-              pnpm lerna version --conventional-commits --yes --dry-run --allow-branch $RELEASE_BRANCH
+              pnpm lerna version --conventional-commits --yes --dry-run --allow-branch $RELEASE_BRANCH --tag-version-prefix=''
           elif ${{inputs.dryrun != true}}
           then
               echo "LERNA_VERSION_TYPE=🚀 Prod Version" >> $GITHUB_ENV
-              pnpm lerna version --conventional-commits --yes --allow-branch $RELEASE_BRANCH
+              pnpm lerna version --conventional-commits --yes --allow-branch $RELEASE_BRANCH --tag-version-prefix=''
           fi
 
       - name: Release pr
