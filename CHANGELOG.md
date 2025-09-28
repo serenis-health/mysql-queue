@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# 0.3.0 (2025-09-28)
+
+### Features
+
+* **core:** improve session for insert or update queries ([6837ae6](https://github.com/serenis-health/mysql-queue/commit/6837ae65319dc4ee11415e9be07abe2ae8551cc0))
+
 # 0.2.0 (2025-09-15)
 
 ### Bug Fixes
