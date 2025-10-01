@@ -3,6 +3,10 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [0.6.0](https://github.com/serenis-health/mysql-queue/compare/0.3.0...0.6.0) (2025-10-01)
+
+**Note:** Version bump only for package @serenis-health/mysql-queue-ui
+
 # [0.5.0](https://github.com/serenis-health/mysql-queue/compare/0.3.0...0.5.0) (2025-10-01)
 
 **Note:** Version bump only for package @serenis-health/mysql-queue-ui
