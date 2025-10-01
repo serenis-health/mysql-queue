@@ -1,6 +1,17 @@
 {
   "permissions": {
-    "allow": ["Bash(docker exec:*)", "Bash(docker-compose:*)", "Bash(npm run build:*)", "Bash(node:*)", "Bash(npm test:*)"],
+    "allow": [
+      "Bash(docker exec:*)",
+      "Bash(docker-compose:*)",
+      "Bash(npm run build:*)",
+      "Bash(node:*)",
+      "Bash(npm test:*)",
+      "Bash(mkdir:*)",
+      "Bash(pnpm run:*)",
+      "Bash(pnpm --filter @serenis/mysql-queue exec vitest run tests/workflows.test.ts)",
+      "mcp__ide__getDiagnostics",
+      "Bash(pnpm --filter @serenis/mysql-queue exec vitest run tests/workflows.test.ts --reporter=verbose)"
+    ],
     "deny": [],
     "ask": []
   }

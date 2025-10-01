@@ -1,4 +1,4 @@
-import { createPool, PoolConnection, RowDataPacket } from "mysql2/promise";
+import { Connection, createPool, PoolConnection, RowDataPacket } from "mysql2/promise";
 import { DbAddJobsParams, DbCreateQueueParams, DbUpdateQueueParams, Session } from "./types";
 import { Logger } from "./logger";
 
@@ -83,6 +83,28 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
         ALTER TABLE ${jobsTable()} ADD COLUMN pendingDedupKey VARCHAR(255) NULL;
         ALTER TABLE ${jobsTable()} ADD UNIQUE INDEX idx_queue_name_pending_dedup (queueId, name, pendingDedupKey, status);
       `,
+    },
+    {
+      down: `DROP TABLE IF EXISTS ${workflowsTable()}`,
+      name: "create-workflows-table",
+      number: 6,
+      up: `
+        CREATE TABLE ${workflowsTable()} (
+          id CHAR(36) NOT NULL PRIMARY KEY,
+          definitionName VARCHAR(100) NOT NULL,
+          status ENUM('running', 'completed', 'failed') NOT NULL DEFAULT 'running',
+          currentStep VARCHAR(100) NOT NULL,
+          data JSON NOT NULL,
+          stepResults JSON NOT NULL,
+          completedSteps JSON NOT NULL,
+          pendingSteps JSON NOT NULL,
+          createdAt TIMESTAMP(3) NOT NULL,
+          completedAt TIMESTAMP(3) NULL,
+          failedAt TIMESTAMP(3) NULL,
+          failureReason TEXT NULL,
+          INDEX idx_status_createdAt (status, createdAt),
+          INDEX idx_definitionName (definitionName)
+        )`,
     },
   ];
 
@@ -314,6 +336,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
         );
       });
     },
+    workflowsTable,
   };
 
   function migrationsTable() {
@@ -325,8 +348,24 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
   function jobsTable() {
     return TABLES_NAME_PREFIX + (options.tablesPrefix || "") + "jobs";
   }
+  function workflowsTable() {
+    return TABLES_NAME_PREFIX + (options.tablesPrefix || "") + "workflows";
+  }
 
   function isMysqlError(e: unknown): e is { code: string; errno: number } {
     return typeof e === "object" && e !== null && "code" in e && "errno" in e;
   }
+}
+
+export function connectionToSession(connection: Connection): Session {
+  return {
+    execute: async (...args) => {
+      const [result] = await connection.execute(...args);
+      return [result] as [{ affectedRows: number }];
+    },
+    query: async (...args) => {
+      const [rows] = await connection.query(...args);
+      return [rows];
+    },
+  };
 }

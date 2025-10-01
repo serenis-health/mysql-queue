@@ -36,10 +36,10 @@ export function MysqlQueue(_options: Options) {
         return {
           createdAt: now,
           id: randomUUID(),
-          idempotentKey: p.idempotentKey,
+          idempotentKey: p.idempotentKey ?? null,
           name: p.name,
           payload: payloadStr,
-          pendingDedupKey: p.pendingDedupKey,
+          pendingDedupKey: p.pendingDedupKey ?? null,
           priority: p.priority || 0,
           startAfter: p.startAfter || now,
           status: "pending",
@@ -72,6 +72,8 @@ export function MysqlQueue(_options: Options) {
       logger.info({ partitionKey: options.partitionKey }, "purged");
     },
     queuesTable: database.queuesTable,
+    workflowsTable: database.workflowsTable,
+    database,
     retrieveQueue,
     async upsertQueue(name: string, params: UpsertQueueParams = {}) {
       const queueWithoutId: Omit<Queue, "id"> = {
@@ -121,6 +123,7 @@ export function MysqlQueue(_options: Options) {
 export type MysqlQueue = ReturnType<typeof MysqlQueue>;
 
 export { Session, Job, PurgePartitionParams } from "./types";
+export { createWorkflows, type Workflows } from "./workflows";
 
 function applyOptionsDefault(options: Options) {
   return {

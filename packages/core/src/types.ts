@@ -43,8 +43,8 @@ export interface JobForInsert {
   priority: number;
   startAfter: Date;
   createdAt: Date;
-  idempotentKey?: string;
-  pendingDedupKey?: string;
+  idempotentKey?: string | null;
+  pendingDedupKey?: string | null;
 }
 
 export type WorkerCallback = (job: Job, signal: AbortSignal, session: Session) => Promise<void> | void;
