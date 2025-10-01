@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [0.5.0](https://github.com/serenis-health/mysql-queue/compare/0.3.0...0.5.0) (2025-10-01)
+
+### Bug Fixes
+
+* **core:** session methods returns ([7f7c903](https://github.com/serenis-health/mysql-queue/commit/7f7c90332d59b01d5c7f923b56df031b08a5eafd))
+
+### Features
+
+* **core:** add idempotence and pending deduplication ([d8635e8](https://github.com/serenis-health/mysql-queue/commit/d8635e8c5abcb2302acca41feffd4583fd4fa74e))
+
 # [0.4.0](https://github.com/serenis-health/mysql-queue/compare/0.3.0...0.4.0) (2025-09-28)
 
 ### Features
