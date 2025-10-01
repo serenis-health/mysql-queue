@@ -297,6 +297,41 @@ describe("mysqlQueue", () => {
         expect(executeResult[0]).toHaveProperty("affectedRows", 1);
       });
 
+      it("should handle undefined values with query (not execute)", async () => {
+        await queryDatabase.query("CREATE TABLE IF NOT EXISTS test_table (id VARCHAR(36) PRIMARY KEY, value VARCHAR(255))");
+
+        const promise = instance.getJobExecutionPromise(queueName, 1);
+
+        let queryResult: unknown;
+        let executeResult: unknown;
+        const workerCbMock = vi.fn(async (_job, _signal, session) => {
+          // Query with undefined parameters should work
+          queryResult = await session.query("SELECT ? as value1, ? as value2", [undefined, "test"]);
+          executeResult = await session.execute("INSERT INTO test_table (id, value) VALUES (?, ?)", [randomUUID(), undefined]);
+        });
+        const worker = await instance.work(queueName, workerCbMock);
+
+        await instance.enqueue(queueName, { name: "test_job", payload: {} });
+
+        void worker.start();
+        await promise;
+
+        await worker.stop();
+
+        const [row] = await queryDatabase.query<RowDataPacket[]>("SELECT * FROM test_table");
+        expect(row.value).toBe(null);
+
+        await queryDatabase.query("DROP TABLE test_table");
+
+        expect(Array.isArray(queryResult)).toBe(true);
+        expect(Array.isArray(executeResult)).toBe(true);
+        expect(queryResult).toEqual([{ value1: null, value2: "test" }]);
+        expect(executeResult).toHaveLength(1);
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-expect-error
+        expect(executeResult[0]).toHaveProperty("affectedRows", 1);
+      });
+
       it("should throw case payload size exceed limit", async () => {
         await expect(() =>
           instance.enqueue(queueName, [{ name: "test_job", payload: { data: "a".repeat(1024 * 1024) } }]),

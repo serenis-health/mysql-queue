@@ -144,7 +144,7 @@ export function JobProcessor(
 function createSessionWrapper(connection: PoolConnection): Session {
   return {
     execute: async (sql: string, parameters: unknown[]) => {
-      const [result] = await connection.execute(sql, parameters);
+      const [result] = await connection.query(sql, parameters);
       return [result as { affectedRows: number }];
     },
     query: async <TRow = unknown>(sql: string, parameters: unknown[]) => {
