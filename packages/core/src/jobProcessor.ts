@@ -98,7 +98,7 @@ export function JobProcessor(
 
     callbackAbortControllers.set(job.id, callbackAbortController);
 
-    const callbackPromise = callback(job, callbackAbortController.signal, connection as unknown as Session);
+    const callbackPromise = callback(job, callbackAbortController.signal, createSessionWrapper(connection));
     const timeoutPromise = new Promise((_, reject) => {
       timeoutId = setTimeout(() => {
         callbackAbortController.abort();
@@ -139,4 +139,17 @@ export function JobProcessor(
       onJobFailed?.(typedError, { id: job.id, queueName: queue.name });
     }
   }
+}
+
+function createSessionWrapper(connection: PoolConnection): Session {
+  return {
+    execute: async (sql: string, parameters: unknown[]) => {
+      const [result] = await connection.execute(sql, parameters);
+      return [result as { affectedRows: number }];
+    },
+    query: async <TRow = unknown>(sql: string, parameters: unknown[]) => {
+      const [rows] = await connection.query(sql, parameters);
+      return rows as TRow[];
+    },
+  };
 }
