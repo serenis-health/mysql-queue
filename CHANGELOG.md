@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.5.1](https://github.com/serenis-health/mysql-queue/compare/0.5.0...0.5.1) (2025-10-01)
+
+### Bug Fixes
+
+* **core:** session execute use mysql connection query method ([b571cba](https://github.com/serenis-health/mysql-queue/commit/b571cba0877876955fb935fc0eb8d667eff66b5c))
+
 # [0.5.0](https://github.com/serenis-health/mysql-queue/compare/0.3.0...0.5.0) (2025-10-01)
 
 ### Bug Fixes
