@@ -252,6 +252,51 @@ describe("mysqlQueue", () => {
         expect(workerCbMock).toHaveBeenCalledTimes(2);
       });
 
+      it("should provide session with query that returns rows array", async () => {
+        const promise = instance.getJobExecutionPromise(queueName, 1);
+
+        let queryResult: unknown;
+        const workerCbMock = vi.fn(async (_job, _signal, session) => {
+          queryResult = await session.query("SELECT 1 as num", []);
+        });
+        const worker = await instance.work(queueName, workerCbMock);
+
+        await instance.enqueue(queueName, { name: "test_job", payload: {} });
+
+        void worker.start();
+        await promise;
+
+        await worker.stop();
+        expect(Array.isArray(queryResult)).toBe(true);
+        expect(queryResult).toEqual([{ num: 1 }]);
+      });
+
+      it("should provide session with execute that returns affectedRows", async () => {
+        await queryDatabase.query("CREATE TABLE IF NOT EXISTS test_table (id VARCHAR(36) PRIMARY KEY, value VARCHAR(255))");
+
+        const promise = instance.getJobExecutionPromise(queueName, 1);
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let executeResult: any;
+
+        const worker = await instance.work(queueName, async (_job, _signal, session) => {
+          const result = await session.execute("INSERT INTO test_table (id, value) VALUES (?, ?)", [randomUUID(), "test_value"]);
+          executeResult = result;
+        });
+
+        await instance.enqueue(queueName, { name: "test_job", payload: {} });
+
+        void worker.start();
+        await promise;
+
+        await worker.stop();
+        await queryDatabase.query("DROP TABLE test_table");
+
+        expect(Array.isArray(executeResult)).toBe(true);
+        expect(executeResult).toHaveLength(1);
+        expect(executeResult[0]).toHaveProperty("affectedRows", 1);
+      });
+
       it("should throw case payload size exceed limit", async () => {
         await expect(() =>
           instance.enqueue(queueName, [{ name: "test_job", payload: { data: "a".repeat(1024 * 1024) } }]),
