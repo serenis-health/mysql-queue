@@ -84,6 +84,16 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
         ALTER TABLE ${jobsTable()} ADD UNIQUE INDEX idx_queue_name_pending_dedup (queueId, name, pendingDedupKey, status);
       `,
     },
+    {
+      down: `
+        ALTER TABLE ${queuesTable()} DROP COLUMN paused;
+      `,
+      name: "add-paused-column",
+      number: 6,
+      up: `
+        ALTER TABLE ${queuesTable()} ADD COLUMN paused BOOLEAN NOT NULL DEFAULT FALSE;
+      `,
+    },
   ];
 
   async function runWithPoolConnection<T>(cb: (connection: PoolConnection) => Promise<T>) {
@@ -151,7 +161,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     async createQueue(params: DbCreateQueueParams) {
       await runWithPoolConnection((connection) => {
         return connection.query(
-          `INSERT INTO ${queuesTable()} (id, name, maxRetries, minDelayMs, backoffMultiplier, maxDurationMs, partitionKey) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO ${queuesTable()} (id, name, maxRetries, minDelayMs, backoffMultiplier, maxDurationMs, partitionKey, paused) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             params.id,
             params.name,
@@ -160,6 +170,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
             params.backoffMultiplier,
             params.maxDurationMs,
             params.partitionKey,
+            params.paused,
           ],
         );
       });
@@ -211,6 +222,12 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
         jobId,
       ]);
     },
+    async isQueuePaused(queueId: string) {
+      const [rows] = await runWithPoolConnection((connection) =>
+        connection.query<RowDataPacket[]>(`SELECT paused FROM ${queuesTable()} WHERE id = ?`, [queueId]),
+      );
+      return rows.length ? (rows[0] as { paused: boolean }).paused : false;
+    },
     jobsTable,
     async markJobAsCompleted(connection: PoolConnection, jobId: string, currentAttempts: number) {
       await connection.execute(`UPDATE ${jobsTable()} SET attempts = ?, status = ?, completedAt = ? WHERE id = ?`, [
@@ -230,7 +247,13 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       ]);
     },
     migrationsTable,
+    async pauseQueue(queueName: string, partitionKey: string) {
+      await runWithPoolConnection((connection) => {
+        return connection.query(`UPDATE ${queuesTable()} SET paused = TRUE WHERE name = ? AND partitionKey = ?`, [queueName, partitionKey]);
+      });
+    },
     queuesTable,
+
     async removeAllTables() {
       const connection = await pool.getConnection();
       await connection.beginTransaction();
@@ -254,6 +277,14 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       } finally {
         pool.releaseConnection(connection);
       }
+    },
+    async resumeQueue(queueName: string, partitionKey: string) {
+      await runWithPoolConnection((connection) => {
+        return connection.query(`UPDATE ${queuesTable()} SET paused = FALSE WHERE name = ? AND partitionKey = ?`, [
+          queueName,
+          partitionKey,
+        ]);
+      });
     },
     async runMigrations() {
       const lockName = `mysql_queue_migrations_${options.tablesPrefix || "default"}`;
@@ -309,8 +340,16 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     async updateQueue(params: DbUpdateQueueParams) {
       await runWithPoolConnection((connection) => {
         return connection.query(
-          `UPDATE ${queuesTable()} SET maxRetries = ?, minDelayMs = ?, backoffMultiplier = ?, maxDurationMs = ?, partitionKey = ? WHERE id = ?`,
-          [params.maxRetries, params.minDelayMs, params.backoffMultiplier, params.maxDurationMs, params.partitionKey || null, params.id],
+          `UPDATE ${queuesTable()} SET maxRetries = ?, minDelayMs = ?, backoffMultiplier = ?, maxDurationMs = ?, partitionKey = ?, paused = ? WHERE id = ?`,
+          [
+            params.maxRetries,
+            params.minDelayMs,
+            params.backoffMultiplier,
+            params.maxDurationMs,
+            params.partitionKey || null,
+            params.paused,
+            params.id,
+          ],
         );
       });
     },

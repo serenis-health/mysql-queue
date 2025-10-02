@@ -3,6 +3,7 @@ import { MysqlQueue, Session } from "../src";
 import { QueryDatabase } from "./utils/queryDatabase";
 import { randomUUID } from "node:crypto";
 import { RowDataPacket } from "mysql2";
+import { sleep } from "../src/utils";
 
 const dbUri = "mysql://root:password@localhost:3306/serenis";
 
@@ -44,6 +45,11 @@ describe("mysqlQueue", () => {
           applied_at: expect.any(Date),
           id: 5,
           name: "add-pending-dedup-key",
+        },
+        {
+          applied_at: expect.any(Date),
+          id: 6,
+          name: "add-paused-column",
         },
       ]);
     });
@@ -102,6 +108,7 @@ describe("mysqlQueue", () => {
         minDelayMs: 1000,
         name: "test_queue",
         partitionKey: "default",
+        paused: 0,
       });
     });
 
@@ -126,6 +133,7 @@ describe("mysqlQueue", () => {
         minDelayMs: 2000,
         name: "test_queue",
         partitionKey: "default",
+        paused: 0,
       });
     });
 
@@ -617,6 +625,74 @@ describe("mysqlQueue", () => {
       expect(jobs[1].name).toBe("job-b");
       expect(jobs[0].pendingDedupKey).toBe("entity-555");
       expect(jobs[1].pendingDedupKey).toBe("entity-555");
+    });
+  });
+
+  describe("Queue pausing", () => {
+    const queueName = "test_queue";
+
+    beforeEach(async () => {
+      await instance.globalInitialize();
+      await instance.upsertQueue(queueName);
+    });
+
+    afterEach(async () => {
+      await instance.globalDestroy();
+    });
+
+    it("should set paused to true when pauseQueue is called", async () => {
+      await instance.pauseQueue(queueName);
+
+      const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT paused FROM ${instance.queuesTable()} WHERE name = ?`, [queueName]);
+
+      expect(row.paused).toBe(1);
+    });
+
+    it("should set paused to false when resumeQueue is called", async () => {
+      await instance.pauseQueue(queueName);
+      await instance.resumeQueue(queueName);
+
+      const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT paused FROM ${instance.queuesTable()} WHERE name = ?`, [queueName]);
+
+      expect(row.paused).toBe(0);
+    });
+
+    it("should not process jobs when queue is paused", async () => {
+      const workerCbMock = vi.fn();
+      const worker = await instance.work(queueName, workerCbMock);
+
+      await instance.enqueue(queueName, {
+        name: "test_job",
+        payload: {},
+      });
+
+      await instance.pauseQueue(queueName);
+
+      void worker.start();
+      await sleep(1000);
+
+      expect(workerCbMock).not.toHaveBeenCalled();
+      await worker.stop();
+    });
+
+    it("should resume processing jobs when queue is resumed", async () => {
+      const promise = instance.getJobExecutionPromise(queueName);
+      const workerCbMock = vi.fn();
+      const worker = await instance.work(queueName, workerCbMock);
+
+      await instance.enqueue(queueName, {
+        name: "test_job",
+        payload: {},
+      });
+
+      await instance.pauseQueue(queueName);
+      void worker.start();
+
+      await instance.resumeQueue(queueName);
+      await promise;
+
+      await worker.stop();
+      expect(workerCbMock).toHaveBeenCalledTimes(1);
     });
   });
 });
