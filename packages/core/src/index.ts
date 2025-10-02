@@ -64,6 +64,11 @@ export function MysqlQueue(_options: Options) {
     },
     jobsTable: database.jobsTable,
     migrationTable: database.migrationsTable,
+    async pauseQueue(queueName: string) {
+      logger.debug({ partitionKey: options.partitionKey, queueName }, "pausingQueue");
+      await database.pauseQueue(queueName, options.partitionKey);
+      logger.info({ partitionKey: options.partitionKey, queueName }, "queuePaused");
+    },
     async purge() {
       logger.debug({ partitionKey: options.partitionKey }, "purging");
 
@@ -72,6 +77,11 @@ export function MysqlQueue(_options: Options) {
       logger.info({ partitionKey: options.partitionKey }, "purged");
     },
     queuesTable: database.queuesTable,
+    async resumeQueue(queueName: string) {
+      logger.debug({ partitionKey: options.partitionKey, queueName }, "resumingQueue");
+      await database.resumeQueue(queueName, options.partitionKey);
+      logger.info({ partitionKey: options.partitionKey, queueName }, "queueResumed");
+    },
     retrieveQueue,
     async upsertQueue(name: string, params: UpsertQueueParams = {}) {
       const queueWithoutId: Omit<Queue, "id"> = {
@@ -81,6 +91,7 @@ export function MysqlQueue(_options: Options) {
         minDelayMs: params.minDelayMs || 1000,
         name,
         partitionKey: options.partitionKey,
+        paused: false,
       };
 
       let id: string;

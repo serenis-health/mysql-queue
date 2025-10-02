@@ -17,6 +17,7 @@ export interface Queue {
   backoffMultiplier: number;
   maxDurationMs: number;
   partitionKey: string;
+  paused: boolean;
 }
 
 export interface Job {

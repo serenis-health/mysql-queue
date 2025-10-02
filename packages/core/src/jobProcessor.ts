@@ -34,6 +34,8 @@ export function JobProcessor(
 
       try {
         if (workerAbortSignal.aborted) return;
+        if (await database.isQueuePaused(queue.id)) return;
+
         await database.runWithPoolConnection(async (connection) => {
           const transactionId = randomUUID();
           const start = Date.now();
