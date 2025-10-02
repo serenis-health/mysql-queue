@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [0.6.0](https://github.com/serenis-health/mysql-queue/compare/0.5.1...0.6.0) (2025-10-02)
+
+### Features
+
+* **core:** pause queue ([6e5da97](https://github.com/serenis-health/mysql-queue/commit/6e5da9763567ed85c7b576ee995dd87700bc47b6))
+
 ## [0.5.1](https://github.com/serenis-health/mysql-queue/compare/0.5.0...0.5.1) (2025-10-01)
 
 ### Bug Fixes
