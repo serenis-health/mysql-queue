@@ -84,7 +84,8 @@ export function MysqlQueue(_options: Options) {
     },
     retrieveQueue,
     async upsertQueue(name: string, params: UpsertQueueParams = {}) {
-      const queueWithoutId: Omit<Queue, "id"> = {
+      const existingQueue = await database.getQueueByName(name, options.partitionKey);
+      const baseQueueParams: Omit<Queue, "id"> = {
         backoffMultiplier: params.backoffMultiplier && params.backoffMultiplier > 0 ? params.backoffMultiplier : 2,
         maxDurationMs: params.maxDurationMs || 5000,
         maxRetries: params.maxRetries || 3,
@@ -93,20 +94,15 @@ export function MysqlQueue(_options: Options) {
         partitionKey: options.partitionKey,
         paused: false,
       };
-
-      let id: string;
-      const existingQueue = await database.getQueueIdByName(name, options.partitionKey);
       if (existingQueue) {
-        id = existingQueue.id;
-        await database.updateQueue({ id, ...queueWithoutId });
-        logger.debug({ queue: { id, ...queueWithoutId } }, "queueUpdated");
-      } else {
-        id = randomUUID();
-        await database.createQueue({ id, ...queueWithoutId });
-        logger.debug({ queue: { id, ...queueWithoutId } }, "queueCreated");
+        const queue: Queue = { ...baseQueueParams, id: existingQueue.id, paused: existingQueue.paused };
+        await database.updateQueue(queue);
+        logger.debug({ queue }, "queueUpdated");
+        return queue;
       }
-
-      const queue: Queue = { id, ...queueWithoutId };
+      const queue: Queue = { ...baseQueueParams, id: randomUUID() };
+      await database.createQueue(queue);
+      logger.debug({ queue }, "queueCreated");
       return queue;
     },
     async work(

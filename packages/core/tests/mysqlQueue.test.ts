@@ -694,6 +694,15 @@ describe("mysqlQueue", () => {
       await worker.stop();
       expect(workerCbMock).toHaveBeenCalledTimes(1);
     });
+
+    it("upsertQueue should not reset pause", async () => {
+      await instance.pauseQueue(queueName);
+      await instance.upsertQueue(queueName);
+
+      const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT paused FROM ${instance.queuesTable()} WHERE name = ?`, [queueName]);
+
+      expect(row.paused).toBe(1);
+    });
   });
 });
 
