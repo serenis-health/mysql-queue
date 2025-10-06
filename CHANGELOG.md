@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.6.1](https://github.com/serenis-health/mysql-queue/compare/0.6.0...0.6.1) (2025-10-06)
+
+### Bug Fixes
+
+* **core:** upsert queue must not reset queue paused flag ([2f589b1](https://github.com/serenis-health/mysql-queue/commit/2f589b1fa56c1e02276495e88d851173096f32f2))
+* **core:** wrong pending dedup key index ([a2578ba](https://github.com/serenis-health/mysql-queue/commit/a2578ba1e3e179fb9f6dfe2045c07383eec11c84))
+
 # [0.6.0](https://github.com/serenis-health/mysql-queue/compare/0.5.1...0.6.0) (2025-10-02)
 
 ### Features
