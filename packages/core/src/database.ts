@@ -81,7 +81,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       number: 5,
       up: `
         ALTER TABLE ${jobsTable()} ADD COLUMN pendingDedupKey VARCHAR(255) NULL;
-        ALTER TABLE ${jobsTable()} ADD UNIQUE INDEX idx_queue_name_pending_dedup (queueId, name, pendingDedupKey, status);
+        ALTER TABLE ${jobsTable()} ADD UNIQUE INDEX idx_queue_name_pending_dedup (queueId, name, (CASE WHEN status = 'pending' THEN pendingDedupKey ELSE NULL END));
       `,
     },
     {

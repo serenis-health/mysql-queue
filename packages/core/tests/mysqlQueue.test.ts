@@ -626,6 +626,60 @@ describe("mysqlQueue", () => {
       expect(jobs[0].pendingDedupKey).toBe("entity-555");
       expect(jobs[1].pendingDedupKey).toBe("entity-555");
     });
+
+    it("should allow enqueuing with same pendingDedupKey after job completes", async () => {
+      const worker = await instance.work(queueName, () => {});
+      void worker.start();
+      const job1Promise = instance.getJobExecutionPromise(queueName, 1);
+      const job = {
+        name: "job-a",
+        payload: { entityId: 555 },
+        pendingDedupKey: "entity-555",
+      };
+      await instance.enqueue(queueName, job);
+      await job1Promise;
+      const job2Promise = instance.getJobExecutionPromise(queueName, 1);
+      await instance.enqueue(queueName, job);
+      await job2Promise;
+      await worker.stop();
+
+      const jobs = await queryDatabase.query<RowDataPacket[]>(
+        `SELECT id, name, pendingDedupKey, status FROM ${instance.jobsTable()} ORDER BY createdAt`,
+      );
+      expect(jobs).toEqual([
+        expect.objectContaining({ pendingDedupKey: "entity-555", status: "completed" }),
+        expect.objectContaining({ pendingDedupKey: "entity-555", status: "completed" }),
+      ]);
+    });
+
+    it("should allow enqueuing with same pendingDedupKey after job fails", async () => {
+      const queueName = "fail";
+      await instance.upsertQueue(queueName, { maxRetries: 1 });
+      const worker = await instance.work(queueName, () => {
+        throw new Error();
+      });
+      void worker.start();
+      const job1Promise = instance.getJobExecutionPromise(queueName, 1);
+      const job = {
+        name: "job-a",
+        payload: { entityId: 555 },
+        pendingDedupKey: "entity-555",
+      };
+      await instance.enqueue(queueName, job);
+      await job1Promise;
+      const job2Promise = instance.getJobExecutionPromise(queueName, 1);
+      await instance.enqueue(queueName, job);
+      await job2Promise;
+      await worker.stop();
+
+      const jobs = await queryDatabase.query<RowDataPacket[]>(
+        `SELECT id, name, pendingDedupKey, status FROM ${instance.jobsTable()} ORDER BY createdAt`,
+      );
+      expect(jobs).toEqual([
+        expect.objectContaining({ pendingDedupKey: "entity-555", status: "failed" }),
+        expect.objectContaining({ pendingDedupKey: "entity-555", status: "failed" }),
+      ]);
+    });
   });
 
   describe("Queue pausing", () => {
