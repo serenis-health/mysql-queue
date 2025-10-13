@@ -1,5 +1,5 @@
-import { createPool, PoolConnection, RowDataPacket } from "mysql2/promise";
-import { DbAddJobsParams, DbCreateQueueParams, DbUpdateQueueParams, Session } from "./types";
+import { Connection, createPool, PoolConnection, RowDataPacket } from "mysql2/promise";
+import { DbAddJobsParams, DbCreateQueueParams, DbUpdateQueueParams, Job, Session } from "./types";
 import { Logger } from "./logger";
 
 const TABLES_NAME_PREFIX = "mysql_queue_";
@@ -94,6 +94,23 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
         ALTER TABLE ${queuesTable()} ADD COLUMN paused BOOLEAN NOT NULL DEFAULT FALSE;
       `,
     },
+    {
+      down: `
+        UPDATE ${jobsTable()} SET status = 'pending' WHERE status = 'running';
+        ALTER TABLE ${jobsTable()} MODIFY COLUMN status ENUM('pending', 'completed', 'failed') NOT NULL;
+        ALTER TABLE ${jobsTable()} DROP COLUMN runningAt;
+        ALTER TABLE ${jobsTable()} DROP COLUMN errors;
+        ALTER TABLE ${jobsTable()} ADD COLUMN latestFailureReason VARCHAR(100) NULL;
+      `,
+      name: "add-running-status-and-errors",
+      number: 7,
+      up: `
+        ALTER TABLE ${jobsTable()} MODIFY COLUMN status ENUM('pending', 'running', 'completed', 'failed') NOT NULL;
+        ALTER TABLE ${jobsTable()} DROP COLUMN latestFailureReason;
+        ALTER TABLE ${jobsTable()} ADD COLUMN errors JSON NULL;
+        ALTER TABLE ${jobsTable()} ADD COLUMN runningAt TIMESTAMP(3) NULL;
+      `,
+    },
   ];
 
   async function runWithPoolConnection<T>(cb: (connection: PoolConnection) => Promise<T>) {
@@ -102,6 +119,18 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       return await cb(connection);
     } finally {
       pool.releaseConnection(connection);
+    }
+  }
+
+  async function runTransaction<T>(cb: (connection: PoolConnection) => Promise<T>, connection: PoolConnection) {
+    await connection.beginTransaction();
+    try {
+      const result = await cb(connection);
+      await connection.commit();
+      return result;
+    } catch (e) {
+      await connection.rollback();
+      throw e;
     }
   }
 
@@ -191,9 +220,53 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     async endPool() {
       await pool.end();
     },
-    async getJobById(connection: PoolConnection, jobId: string) {
-      const [rows] = await connection.query<RowDataPacket[]>(`SELECT * FROM ${jobsTable()} WHERE id = ?`, [jobId]);
-      return rows.length ? rows[0] : null;
+    async failJobs(
+      connection: Connection,
+      jobIds: string[],
+      maxRetries: number,
+      minDelayMs: number,
+      backoffMultiplier: number,
+      error: { message: string; name: string; stack?: string },
+    ) {
+      const placeholders = jobIds.map(() => "?").join(",");
+      await connection.query(
+        `
+          UPDATE ${jobsTable()}
+          SET 
+              attempts = attempts + 1,
+              status = CASE
+                  WHEN attempts < ? THEN 'pending'
+                  ELSE 'failed'
+              END,
+              startAfter = CASE
+              WHEN attempts < ? THEN FROM_UNIXTIME(
+                  (UNIX_TIMESTAMP(NOW(3)) * 1000 + ? * POW(?, attempts - 1)) / 1000
+              )
+              ELSE startAfter
+          END,
+              failedAt = CASE
+                  WHEN attempts < ? THEN failedAt
+                  ELSE NOW()
+              END,
+              errors = JSON_ARRAY_APPEND(
+                    COALESCE(errors, JSON_ARRAY()),
+                    '$',
+                    JSON_OBJECT(
+                      'at', NOW(3),
+                      'attempt', attempts,
+                      'error', ?
+                    )
+                  )
+          WHERE id IN (${placeholders}) AND status = 'running'
+        `,
+        [maxRetries, maxRetries, minDelayMs, backoffMultiplier, maxRetries, JSON.stringify(error), ...jobIds],
+      );
+    },
+    async getJobById(jobId: string) {
+      const [rows] = await runWithPoolConnection((connection) =>
+        connection.query<RowDataPacket[]>(`SELECT * FROM ${jobsTable()} WHERE id = ?`, [jobId]),
+      );
+      return rows.length ? (rows[0] as Job) : null;
     },
     async getPendingJobs(connection: PoolConnection, queueId: string, batchSize: number) {
       const [rows] = await connection.query<RowDataPacket[]>(
@@ -201,6 +274,10 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
         [queueId, "pending", new Date(), batchSize],
       );
       return rows;
+    },
+    async getQueueById(connection: Connection, queueId: string) {
+      const [rows] = await connection.query<RowDataPacket[]>(`SELECT * FROM ${queuesTable()} WHERE id = ?`, [queueId]);
+      return rows.length ? rows[0] : null;
     },
     async getQueueByName(name: string, partitionKey: string) {
       const [rows] = await runWithPoolConnection((connection) =>
@@ -214,14 +291,6 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       );
       return rows.length ? (rows[0] as { id: string }) : null;
     },
-    async incrementJobAttempts(connection: PoolConnection, jobId: string, error: string, currentAttempts: number, startAfter: Date) {
-      await connection.execute(`UPDATE ${jobsTable()} SET attempts = ?, latestFailureReason = ?, startAfter = ? WHERE id = ?`, [
-        currentAttempts + 1,
-        error,
-        startAfter,
-        jobId,
-      ]);
-    },
     async isQueuePaused(queueId: string) {
       const [rows] = await runWithPoolConnection((connection) =>
         connection.query<RowDataPacket[]>(`SELECT paused FROM ${queuesTable()} WHERE id = ?`, [queueId]),
@@ -229,21 +298,23 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       return rows.length ? (rows[0] as { paused: boolean }).paused : false;
     },
     jobsTable,
-    async markJobAsCompleted(connection: PoolConnection, jobId: string, currentAttempts: number) {
-      await connection.execute(`UPDATE ${jobsTable()} SET attempts = ?, status = ?, completedAt = ? WHERE id = ?`, [
-        currentAttempts + 1,
-        "completed",
-        new Date(),
-        jobId,
-      ]);
+    async markJobsAsCompleted(session: Session, jobIds: string[]) {
+      const placeholders = jobIds.map(() => "?").join(",");
+      const [result] = await session.execute(
+        `UPDATE ${jobsTable()}
+             SET attempts = attempts + 1,
+             status = ?,
+             completedAt = ?
+             WHERE id IN (${placeholders}) AND status = 'running'`,
+        ["completed", new Date(), ...jobIds],
+      );
+      return result.affectedRows;
     },
-    async markJobAsFailed(connection: PoolConnection, jobId: string, error: string, currentAttempts: number) {
-      await connection.execute(`UPDATE ${jobsTable()} SET attempts = ?, status = ?, failedAt = ?, latestFailureReason = ? WHERE id = ?`, [
-        currentAttempts + 1,
-        "failed",
+    async markJobsAsRunning(connection: Connection, jobIds: string[]) {
+      const placeholders = jobIds.map(() => "?").join(",");
+      await connection.query(`UPDATE ${jobsTable()} SET status = 'running', runningAt = ? WHERE id IN (${placeholders});`, [
         new Date(),
-        error,
-        jobId,
+        ...jobIds,
       ]);
     },
     migrationsTable,
@@ -336,6 +407,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       }
       logger.info("Migrations completed");
     },
+    runTransaction,
     runWithPoolConnection,
     async updateQueue(params: DbUpdateQueueParams) {
       await runWithPoolConnection((connection) => {

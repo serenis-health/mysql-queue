@@ -1,4 +1,5 @@
 import { EnqueueParams, JobForInsert, Options, Queue, RetrieveQueueParams, Session, UpsertQueueParams, WorkerCallback } from "./types";
+import { createRescuer } from "./rescuer";
 import { Database } from "./database";
 import { Logger } from "./logger";
 import { randomUUID } from "node:crypto";
@@ -15,13 +16,16 @@ export function MysqlQueue(_options: Options) {
     uri: options.dbUri,
   });
   const workersFactory = WorkersFactory(logger, database);
+  const rescuer = createRescuer(database, logger);
 
   return {
+    __internal: { getRescuerNextRun: rescuer.getNextRun, rescue: rescuer.rescue },
     async countJobs(queueName: string) {
       return database.countJobs(queueName, options.partitionKey);
     },
     async dispose() {
       logger.debug("disposing");
+      rescuer.dispose();
       await workersFactory.stopAll();
       await database.endPool();
       logger.info("disposed");
@@ -51,6 +55,9 @@ export function MysqlQueue(_options: Options) {
       logger.info({ jobCount: affectedRows }, "enqueue.jobsAddedToQueue");
       return { jobIds: jobsForInsert.map((j) => j.id) };
     },
+    async getJobById(id: string) {
+      return await database.getJobById(id);
+    },
     getJobExecutionPromise: workersFactory.getJobExecutionPromise,
     async globalDestroy() {
       logger.debug("destroying");
@@ -60,6 +67,7 @@ export function MysqlQueue(_options: Options) {
     async globalInitialize() {
       logger.debug("starting");
       await database.runMigrations();
+      rescuer.initialize();
       logger.info("started");
     },
     jobsTable: database.jobsTable,
@@ -127,7 +135,7 @@ export function MysqlQueue(_options: Options) {
 
 export type MysqlQueue = ReturnType<typeof MysqlQueue>;
 
-export { Session, Job, PurgePartitionParams } from "./types";
+export { CallbackContext, Session, Job, PurgePartitionParams } from "./types";
 
 function applyOptionsDefault(options: Options) {
   return {

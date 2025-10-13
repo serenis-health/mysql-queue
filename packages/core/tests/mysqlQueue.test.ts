@@ -51,6 +51,11 @@ describe("mysqlQueue", () => {
           id: 6,
           name: "add-paused-column",
         },
+        {
+          applied_at: expect.any(Date),
+          id: 7,
+          name: "add-running-status-and-errors",
+        },
       ]);
     });
 
@@ -194,15 +199,16 @@ describe("mysqlQueue", () => {
           attempts: 0,
           completedAt: null,
           createdAt: expect.any(Date),
+          errors: null,
           failedAt: null,
           id: expect.any(String),
           idempotentKey: null,
-          latestFailureReason: null,
           name: "test_job",
           payload: { message: "Hello, world!" },
           pendingDedupKey: null,
           priority: 0,
           queueId: expect.any(String),
+          runningAt: null,
           startAfter: expect.any(Date),
           status: "pending",
         });
@@ -239,7 +245,7 @@ describe("mysqlQueue", () => {
         await promise;
 
         await worker.stop();
-        expect(workerCbMock).toHaveBeenCalledWith(expect.objectContaining({ id: jobIds[0] }), expect.anything(), expect.anything());
+        expect(workerCbMock).toHaveBeenCalledWith([expect.objectContaining({ id: jobIds[0] })], expect.anything(), expect.anything());
       });
 
       it("should fire the worker callback two jobs", async () => {
@@ -258,86 +264,6 @@ describe("mysqlQueue", () => {
 
         await worker.stop();
         expect(workerCbMock).toHaveBeenCalledTimes(2);
-      });
-
-      it("should provide session with query that returns rows array", async () => {
-        const promise = instance.getJobExecutionPromise(queueName, 1);
-
-        let queryResult: unknown;
-        const workerCbMock = vi.fn(async (_job, _signal, session) => {
-          queryResult = await session.query("SELECT 1 as num", []);
-        });
-        const worker = await instance.work(queueName, workerCbMock);
-
-        await instance.enqueue(queueName, { name: "test_job", payload: {} });
-
-        void worker.start();
-        await promise;
-
-        await worker.stop();
-        expect(Array.isArray(queryResult)).toBe(true);
-        expect(queryResult).toEqual([{ num: 1 }]);
-      });
-
-      it("should provide session with execute that returns affectedRows", async () => {
-        await queryDatabase.query("CREATE TABLE IF NOT EXISTS test_table (id VARCHAR(36) PRIMARY KEY, value VARCHAR(255))");
-
-        const promise = instance.getJobExecutionPromise(queueName, 1);
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let executeResult: any;
-
-        const worker = await instance.work(queueName, async (_job, _signal, session) => {
-          const result = await session.execute("INSERT INTO test_table (id, value) VALUES (?, ?)", [randomUUID(), "test_value"]);
-          executeResult = result;
-        });
-
-        await instance.enqueue(queueName, { name: "test_job", payload: {} });
-
-        void worker.start();
-        await promise;
-
-        await worker.stop();
-        await queryDatabase.query("DROP TABLE test_table");
-
-        expect(Array.isArray(executeResult)).toBe(true);
-        expect(executeResult).toHaveLength(1);
-        expect(executeResult[0]).toHaveProperty("affectedRows", 1);
-      });
-
-      it("should handle undefined values with query (not execute)", async () => {
-        await queryDatabase.query("CREATE TABLE IF NOT EXISTS test_table (id VARCHAR(36) PRIMARY KEY, value VARCHAR(255))");
-
-        const promise = instance.getJobExecutionPromise(queueName, 1);
-
-        let queryResult: unknown;
-        let executeResult: unknown;
-        const workerCbMock = vi.fn(async (_job, _signal, session) => {
-          // Query with undefined parameters should work
-          queryResult = await session.query("SELECT ? as value1, ? as value2", [undefined, "test"]);
-          executeResult = await session.execute("INSERT INTO test_table (id, value) VALUES (?, ?)", [randomUUID(), undefined]);
-        });
-        const worker = await instance.work(queueName, workerCbMock);
-
-        await instance.enqueue(queueName, { name: "test_job", payload: {} });
-
-        void worker.start();
-        await promise;
-
-        await worker.stop();
-
-        const [row] = await queryDatabase.query<RowDataPacket[]>("SELECT * FROM test_table");
-        expect(row.value).toBe(null);
-
-        await queryDatabase.query("DROP TABLE test_table");
-
-        expect(Array.isArray(queryResult)).toBe(true);
-        expect(Array.isArray(executeResult)).toBe(true);
-        expect(queryResult).toEqual([{ value1: null, value2: "test" }]);
-        expect(executeResult).toHaveLength(1);
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-expect-error
-        expect(executeResult[0]).toHaveProperty("affectedRows", 1);
       });
 
       it("should throw case payload size exceed limit", async () => {
@@ -382,15 +308,16 @@ describe("mysqlQueue", () => {
           attempts: 0,
           completedAt: null,
           createdAt: expect.any(Date),
+          errors: null,
           failedAt: null,
           id: expect.any(String),
           idempotentKey: null,
-          latestFailureReason: null,
           name: "test_job",
           payload: { message: "Hello, world!" },
           pendingDedupKey: null,
           priority: 0,
           queueId: expect.any(String),
+          runningAt: null,
           startAfter: expect.any(Date),
           status: "pending",
         });
@@ -458,8 +385,10 @@ describe("mysqlQueue", () => {
     it("should fail job after attempts", async () => {
       const promise = instance.getJobExecutionPromise(queueName);
 
+      const errorMessage = "a".repeat(120);
+
       const workerCbMock = vi.fn().mockImplementation(() => {
-        throw new Error("a".repeat(120));
+        throw new Error(errorMessage);
       });
       const worker = await instance.work(queueName, workerCbMock);
 
@@ -475,8 +404,14 @@ describe("mysqlQueue", () => {
       const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.jobsTable()}`);
       expect(row).toMatchObject({
         attempts: 1,
+        errors: [
+          {
+            at: expect.any(String),
+            attempt: 1,
+            error: expect.stringContaining(errorMessage),
+          },
+        ],
         failedAt: expect.any(Date),
-        latestFailureReason: expect.stringContaining("<truncated>"),
         status: "failed",
       });
 

@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vitest } from "vitest";
 import { MysqlQueue } from "../src";
 import { randomUUID } from "node:crypto";
-import { waitInvoked } from "./utils/waitInvoked";
 
 describe("Performance", () => {
   const WORKER_COUNT = 10;
@@ -43,9 +42,10 @@ describe("Performance", () => {
     }));
 
     const start = performance.now();
+    const promise = mysqlQueue.getJobExecutionPromise(queue, JOB_COUNT);
     await mysqlQueue.enqueue(queue, jobs);
+    await promise;
 
-    await waitInvoked(WorkerMocks, "handle", JOB_COUNT);
     const end = performance.now();
     expect(end - start).toBeLessThan(5000);
     await Promise.all(workers.map((w) => w.stop()));
