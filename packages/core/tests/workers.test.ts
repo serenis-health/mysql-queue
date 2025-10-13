@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { afterEach, beforeEach, describe, expect, it, vitest } from "vitest";
 import { createPool, RowDataPacket } from "mysql2/promise";
 import { MysqlQueue } from "../src";
@@ -48,11 +49,11 @@ describe("workers", () => {
       void Promise.all([worker1.start(), worker2.start()]);
       await promise;
 
-      const w1JobIds = Worker1HandlerMock.handle.mock.calls.map((c) => c[0].id);
-      const w2JobIds = Worker2HandlerMock.handle.mock.calls.map((c) => c[0].id);
+      const w1JobIds = Worker1HandlerMock.handle.mock.calls.flatMap((c) => c[0].map((j: any) => j.id));
+      const w2JobIds = Worker2HandlerMock.handle.mock.calls.flatMap((c) => c[0].map((j: any) => j.id));
       expect(haveNoCommonElements(w1JobIds, w2JobIds)).toBeTruthy();
-      expect(Worker1HandlerMock.handle).toHaveBeenCalledTimes(5);
-      expect(Worker2HandlerMock.handle).toHaveBeenCalledTimes(5);
+      expect(Worker1HandlerMock.handle).toHaveBeenCalledTimes(1);
+      expect(Worker2HandlerMock.handle).toHaveBeenCalledTimes(1);
     });
 
     it("should ensure that a slow worker does not block or delay other workers, case jobs already on queue", async () => {
@@ -143,14 +144,18 @@ describe("workers", () => {
       void worker.start();
 
       const promise = mysqlQueue.getJobExecutionPromise(queueName, 3);
-      mysqlQueue.enqueue(queueName, [
+      await mysqlQueue.enqueue(queueName, [
         { name: "priority-1", payload: {}, priority: 1 },
         { name: "priority-2", payload: {}, priority: 2 },
         { name: "priority-3", payload: {}, priority: 3 },
       ]);
       await promise;
 
-      expect(WorkerHandlerMock.handle.mock.calls.map((c) => c[0].name)).toEqual(["priority-3", "priority-2", "priority-1"]);
+      expect(WorkerHandlerMock.handle.mock.calls.flatMap((c) => c[0].map((j: any) => j.name))).toEqual([
+        "priority-3",
+        "priority-2",
+        "priority-1",
+      ]);
     }, 10_000);
 
     it("tracker promise should resolved after status are committed", async () => {
@@ -214,7 +219,6 @@ function enqueueNJobs(mysqlQueue: MysqlQueue, queueName: string, n: number) {
   );
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function hasExactly(arr: any[], count: number, predicate: (item: any) => boolean) {
   return arr.filter(predicate).length === count;
 }

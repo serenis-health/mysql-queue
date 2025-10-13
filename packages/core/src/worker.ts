@@ -69,10 +69,9 @@ export function Worker(
   const workerId = randomUUID();
   const wLogger = logger.child({ workerId });
 
-  const jobProcessor = JobProcessor(database, wLogger, queue, callback, onJobProcessed, onJobFailed);
-
   const controller = new AbortController();
   const { signal } = controller;
+  const jobProcessor = JobProcessor(database, wLogger, queue, callback, signal, batchSize, onJobProcessed, onJobFailed);
 
   let stopPromiseResolve: (() => void) | null = null;
   const stopPromise = new Promise<void>((resolve) => {
@@ -85,7 +84,7 @@ export function Worker(
 
       while (!signal.aborted) {
         try {
-          await jobProcessor.processBatch(batchSize, signal);
+          await jobProcessor.processBatch();
           await sleep(pollingIntervalMs);
         } catch (error) {
           const typedError = error as Error;

@@ -24,7 +24,7 @@ export interface Job {
   id: string;
   name: string;
   payload: unknown;
-  status: "pending" | "completed" | "failed";
+  status: "pending" | "running" | "completed" | "failed";
   createdAt: Date;
   completedAt: Date | null;
   failedAt: Date | null;
@@ -48,7 +48,7 @@ export interface JobForInsert {
   pendingDedupKey?: string;
 }
 
-export type WorkerCallback = (job: Job, signal: AbortSignal, session: Session) => Promise<void> | void;
+export type WorkerCallback = (jobs: Job[], signal: AbortSignal, ctx: Context) => Promise<void> | void;
 
 export interface UpsertQueueParams {
   maxRetries?: number;
@@ -83,4 +83,8 @@ export type DbAddJobsParams = JobForInsert[];
 export type Session = {
   query: <TRow = unknown>(sql: string, parameters: unknown[]) => Promise<TRow[]>;
   execute: (sql: string, parameters: unknown[]) => Promise<[{ affectedRows: number }]>;
+};
+
+export type Context = {
+  markJobsAsCompleted: (session: Session) => Promise<void>;
 };
