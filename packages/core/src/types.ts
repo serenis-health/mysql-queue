@@ -48,7 +48,7 @@ export interface JobForInsert {
   pendingDedupKey?: string;
 }
 
-export type WorkerCallback = (jobs: Job[], signal: AbortSignal, ctx: Context) => Promise<void> | void;
+export type WorkerCallback = (jobs: Job[], signal: AbortSignal, ctx: CallbackContext) => Promise<void> | void;
 
 export interface UpsertQueueParams {
   maxRetries?: number;
@@ -85,6 +85,6 @@ export type Session = {
   execute: (sql: string, parameters: unknown[]) => Promise<[{ affectedRows: number }]>;
 };
 
-export type Context = {
+export type CallbackContext = {
   markJobsAsCompleted: (session: Session) => Promise<void>;
 };

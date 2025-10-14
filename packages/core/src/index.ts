@@ -25,6 +25,7 @@ export function MysqlQueue(_options: Options) {
     },
     async dispose() {
       logger.debug("disposing");
+      rescuer.dispose();
       await workersFactory.stopAll();
       await database.endPool();
       logger.info("disposed");
@@ -53,6 +54,9 @@ export function MysqlQueue(_options: Options) {
       logger.debug({ jobCount: affectedRows, jobs: jobsForInsert }, "enqueue.jobsAddedToQueue");
       logger.info({ jobCount: affectedRows }, "enqueue.jobsAddedToQueue");
       return { jobIds: jobsForInsert.map((j) => j.id) };
+    },
+    async getJobById(id: string) {
+      return await database.getJobById(id);
     },
     getJobExecutionPromise: workersFactory.getJobExecutionPromise,
     async globalDestroy() {
@@ -131,7 +135,7 @@ export function MysqlQueue(_options: Options) {
 
 export type MysqlQueue = ReturnType<typeof MysqlQueue>;
 
-export { Session, Job, PurgePartitionParams } from "./types";
+export { CallbackContext, Session, Job, PurgePartitionParams } from "./types";
 
 function applyOptionsDefault(options: Options) {
   return {

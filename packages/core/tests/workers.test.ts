@@ -1,7 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { afterEach, beforeEach, describe, expect, it, vitest } from "vitest";
+import { CallbackContext, MysqlQueue } from "../src";
 import { createPool, RowDataPacket } from "mysql2/promise";
-import { MysqlQueue } from "../src";
+import { connectionToSession } from "../src/jobProcessor";
+import { Job } from "../src";
 import { randomUUID } from "node:crypto";
 
 const DB_URI = "mysql://root:password@localhost:3306/serenis";
@@ -130,8 +132,14 @@ describe("workers", () => {
 
       const [rows] = await pool.query<RowDataPacket[]>(`SELECT * from ${mysqlQueue.jobsTable()}`);
       expect(rows[0]).toMatchObject({
+        errors: [
+          {
+            at: expect.any(String),
+            attempt: 1,
+            error: expect.stringContaining("Job execution exceed the timeout of 1000"),
+          },
+        ],
         failedAt: expect.any(Date),
-        latestFailureReason: "Job execution exceed the timeout of 1000",
         status: "failed",
       });
     }, 10_000);
@@ -200,6 +208,67 @@ describe("workers", () => {
       expect(OnJobFailedMock).toHaveBeenCalledTimes(1);
       expect(OnJobFailedMock).toHaveBeenCalledWith(error, { id: jobId, queueName });
     });
+  });
+
+  describe("transactional job completion", () => {
+    let worker: Awaited<ReturnType<typeof mysqlQueue.work>>;
+
+    afterEach(async () => {
+      if (worker) {
+        await worker.stop();
+      }
+      await pool.query(`DROP TABLE IF EXISTS testTable`);
+    });
+
+    it("context.markJobsAsCompleted should throw if job is timed out", async () => {
+      await pool.query(`CREATE TABLE testTable (id VARCHAR(36) PRIMARY KEY)`);
+      const queueName = "test_queue";
+      await mysqlQueue.upsertQueue(queueName, { maxDurationMs: 100, maxRetries: 1 });
+
+      worker = await mysqlQueue.work(
+        queueName,
+        async function ([job]: Job[], signal: AbortSignal, ctx: CallbackContext) {
+          const connection = await pool.getConnection();
+          try {
+            await connection.beginTransaction();
+            const session = connectionToSession(connection);
+            await session.execute(`INSERT INTO testTable (id) VALUES (?)`, [job.id]);
+            await sleep(200); // needed for timeout
+            await ctx.markJobsAsCompleted(session);
+            await connection.commit();
+          } catch (e) {
+            await connection.rollback();
+            throw e;
+          } finally {
+            connection.release();
+          }
+        },
+        100,
+      );
+      void worker.start();
+
+      const promise = mysqlQueue.getJobExecutionPromise(queueName, 1);
+      const {
+        jobIds: [jobId],
+      } = await mysqlQueue.enqueue(queueName, { name: "test-job", payload: { test: true } });
+      await promise;
+
+      const job = await mysqlQueue.getJobById(jobId);
+      expect(job).toMatchObject({
+        attempts: 1,
+        errors: [
+          {
+            at: expect.any(String),
+            attempt: 1,
+            error: expect.stringContaining("Job execution exceed the timeout of 100"),
+          },
+        ],
+        status: "failed",
+      });
+
+      const [rows] = await pool.query<RowDataPacket[]>(`SELECT * FROM testTable`);
+      expect(rows).length(0);
+    }, 10_000);
   });
 });
 

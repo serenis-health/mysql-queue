@@ -51,6 +51,11 @@ describe("mysqlQueue", () => {
           id: 6,
           name: "add-paused-column",
         },
+        {
+          applied_at: expect.any(Date),
+          id: 7,
+          name: "add-running-status-and-errors",
+        },
       ]);
     });
 
@@ -194,10 +199,10 @@ describe("mysqlQueue", () => {
           attempts: 0,
           completedAt: null,
           createdAt: expect.any(Date),
+          errors: null,
           failedAt: null,
           id: expect.any(String),
           idempotentKey: null,
-          latestFailureReason: null,
           name: "test_job",
           payload: { message: "Hello, world!" },
           pendingDedupKey: null,
@@ -303,10 +308,10 @@ describe("mysqlQueue", () => {
           attempts: 0,
           completedAt: null,
           createdAt: expect.any(Date),
+          errors: null,
           failedAt: null,
           id: expect.any(String),
           idempotentKey: null,
-          latestFailureReason: null,
           name: "test_job",
           payload: { message: "Hello, world!" },
           pendingDedupKey: null,
@@ -380,8 +385,10 @@ describe("mysqlQueue", () => {
     it("should fail job after attempts", async () => {
       const promise = instance.getJobExecutionPromise(queueName);
 
+      const errorMessage = "a".repeat(120);
+
       const workerCbMock = vi.fn().mockImplementation(() => {
-        throw new Error("a".repeat(120));
+        throw new Error(errorMessage);
       });
       const worker = await instance.work(queueName, workerCbMock);
 
@@ -397,8 +404,14 @@ describe("mysqlQueue", () => {
       const [row] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.jobsTable()}`);
       expect(row).toMatchObject({
         attempts: 1,
+        errors: [
+          {
+            at: expect.any(String),
+            attempt: 1,
+            error: expect.stringContaining(errorMessage),
+          },
+        ],
         failedAt: expect.any(Date),
-        latestFailureReason: expect.stringContaining("<truncated>"),
         status: "failed",
       });
 

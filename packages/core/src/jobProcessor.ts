@@ -1,4 +1,4 @@
-import { Context, Job, JobWithQueueName, Queue, Session, WorkerCallback } from "./types";
+import { CallbackContext, Job, JobWithQueueName, Queue, Session, WorkerCallback } from "./types";
 import { Database } from "./database";
 import { errorToJson } from "./utils";
 import { Logger } from "./logger";
@@ -40,14 +40,13 @@ export function JobProcessor(
           await executeCallbackWithTimeout(connection, jobs, jobIds);
         } catch (error: unknown) {
           const typedError = error as Error;
-          await database.failJobs(connection, jobIds, queue.maxRetries, queue.minDelayMs, queue.backoffMultiplier, typedError);
+          await database.failJobs(connection, jobIds, queue.maxRetries, queue.minDelayMs, queue.backoffMultiplier, errorToJson(typedError));
           logger.error({ error: errorToJson(typedError), jobIds }, `jobProcessor.process.jobsFailHandled`);
           jobs
-            .filter((j) => j.attempts >= queue.maxRetries - 1)
+            .filter((j) => j.attempts + 1 >= queue.maxRetries)
             .forEach((j) => onJobFailed?.(typedError, { id: j.id, queueName: queue.name }));
         }
-        const elapsedSeconds = (Date.now() - start) / 1000;
-        logger.debug({ elapsedSeconds, jobCount, jobIds }, `jobProcessor.processBatch.jobsRun`);
+        logger.debug({ elapsedSeconds: (Date.now() - start) / 1000, jobCount, jobIds }, `jobProcessor.processBatch.jobsRun`);
         jobs.forEach((j) => onJobProcessed?.({ ...j, queueName: queue.name }));
       });
     },
@@ -59,7 +58,7 @@ export function JobProcessor(
 
     let shouldMarkAsCompleted = true;
     try {
-      const context = await createCallbackContext();
+      const context = createCallbackContext();
 
       const callbackPromise = callback(jobs, callbackAbortController.signal, context);
       let timeoutId: NodeJS.Timeout;
@@ -76,21 +75,26 @@ export function JobProcessor(
       });
 
       if (shouldMarkAsCompleted) {
-        await database.markJobsAsCompleted(createSessionWrapper(connection), jobIds);
-        logger.debug({ jobIds }, `jobProcessor.process.markedJobAsCompleted`);
+        const affectedRows = await database.markJobsAsCompleted(connectionToSession(connection), jobIds);
+        if (affectedRows < jobIds.length) {
+          logger.warn({ affectedRows, jobIds }, `jobProcessor.process.someJobsNotRunning`);
+        } else {
+          logger.debug({ jobIds }, `jobProcessor.process.markedJobAsCompleted`);
+        }
       }
     } finally {
       workerAbortSignal.removeEventListener("abort", onWorkerAbort);
     }
 
-    async function createCallbackContext() {
+    function createCallbackContext() {
       return {
         async markJobsAsCompleted(session: Session) {
           shouldMarkAsCompleted = false;
-          await database.markJobsAsCompleted(session, jobIds);
+          const affectedRows = await database.markJobsAsCompleted(session, jobIds);
+          if (affectedRows < jobIds.length) throw new Error(`Jobs may have already timed out or been cancelled`);
           logger.debug({ jobIds }, `jobProcessor.process.markedJobAsCompletedWithSession`);
         },
-      } satisfies Context;
+      } satisfies CallbackContext;
     }
 
     function onWorkerAbort() {
@@ -99,7 +103,7 @@ export function JobProcessor(
   }
 }
 
-function createSessionWrapper(connection: PoolConnection): Session {
+export function connectionToSession(connection: PoolConnection): Session {
   return {
     execute: async (sql: string, parameters: unknown[]) => {
       const [result] = await connection.query(sql, parameters);

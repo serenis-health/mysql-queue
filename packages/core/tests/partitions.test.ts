@@ -18,13 +18,16 @@ describe("partition functionality", () => {
   beforeAll(async () => {
     instance1 = MysqlQueue({
       dbUri,
+      loggingLevel: "fatal",
     });
     partitionedInstance1 = MysqlQueue({
       dbUri,
+      loggingLevel: "fatal",
       partitionKey: partitionKey1,
     });
     partitionedInstance2 = MysqlQueue({
       dbUri,
+      loggingLevel: "fatal",
       partitionKey: partitionKey2,
     });
 

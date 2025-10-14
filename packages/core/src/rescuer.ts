@@ -5,13 +5,14 @@ import { RowDataPacket } from "mysql2/promise";
 
 export function createRescuer(database: Database, logger: Logger) {
   let timeout: NodeJS.Timeout;
-  let nextRun: Date;
+  let nextRun: Date | null = null;
 
-  const stuckHorizonMs = 30_000_000;
+  const STUCK_HORIZON_MS = 3_600_000;
 
   return {
     dispose() {
       clearTimeout(timeout);
+      nextRun = null;
     },
     getNextRun() {
       return nextRun;
@@ -23,7 +24,7 @@ export function createRescuer(database: Database, logger: Logger) {
   };
 
   async function rescue() {
-    const stuckHorizon = new Date(Date.now() - stuckHorizonMs);
+    const stuckHorizon = new Date(Date.now() - STUCK_HORIZON_MS);
     await database.runWithPoolConnection(async (connection) => {
       const query = `SELECT id, queueId
            FROM ${database.jobsTable()}
@@ -68,7 +69,7 @@ export function createRescuer(database: Database, logger: Logger) {
     nextHour.setHours(now.getHours() + 1, 0, 0, 0);
     const delay = nextHour.getTime() - now.getTime();
     nextRun = nextHour;
-    logger.debug({ delayInMinutes: Math.round(delay / 60000), nextHour }, "rescuer.nextRunScheduled");
+    logger.info({ delayInMinutes: Math.round(delay / 60000), nextHour }, "rescuer.nextRunScheduled");
 
     timeout = setTimeout(() => {
       rescue()

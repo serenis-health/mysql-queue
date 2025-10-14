@@ -14,7 +14,7 @@ describe("rescuer", () => {
     queryDatabase = QueryDatabase({ dbUri: DB_URI });
     mysqlQueue = MysqlQueue({
       dbUri: DB_URI,
-      //loggingLevel: "fatal",
+      loggingLevel: "fatal",
       tablesPrefix: `${randomUUID().slice(-4)}_`,
     });
     await mysqlQueue.globalInitialize();
@@ -26,12 +26,19 @@ describe("rescuer", () => {
     await queryDatabase.dispose();
   });
 
+  it("given uninitialized instance, getNextRun should return undefined", () => {
+    const uninitializedQueue = MysqlQueue({ dbUri: DB_URI, loggingLevel: "fatal" });
+
+    const nextRun = uninitializedQueue.__internal.getRescuerNextRun();
+    expect(nextRun).toBeNull();
+  });
+
   it("given initialized instance, should scheduled the next run for next hour", () => {
     const nextRun = mysqlQueue.__internal.getRescuerNextRun();
     const nextHour = new Date();
     nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
 
-    expect(nextRun.getTime()).toEqual(nextRun.getTime());
+    expect(nextRun?.getTime()).toEqual(nextHour.getTime());
   });
 
   it("given one stuck job, should re set pending status", async () => {
@@ -55,7 +62,7 @@ describe("rescuer", () => {
           {
             at: expect.any(String),
             attempt: 1,
-            error: '"{\\"message\\":\\"Job stuck in running state and was rescued\\",\\"name\\":\\"RescuerError\\"}"',
+            error: '{"message":"Job stuck in running state and was rescued","name":"RescuerError"}',
           },
         ],
         id: jobId,
@@ -85,7 +92,7 @@ describe("rescuer", () => {
           {
             at: expect.any(String),
             attempt: 1,
-            error: '"{\\"message\\":\\"Job stuck in running state and was rescued\\",\\"name\\":\\"RescuerError\\"}"',
+            error: '{"message":"Job stuck in running state and was rescued","name":"RescuerError"}',
           },
         ],
         id: jobId,
@@ -113,12 +120,12 @@ describe("rescuer", () => {
           {
             at: expect.any(String),
             attempt: 1,
-            error: '"{\\"message\\":\\"Job stuck in running state and was rescued\\",\\"name\\":\\"RescuerError\\"}"',
+            error: '{"message":"Job stuck in running state and was rescued","name":"RescuerError"}',
           },
           {
             at: expect.any(String),
             attempt: 2,
-            error: '"{\\"message\\":\\"Job stuck in running state and was rescued\\",\\"name\\":\\"RescuerError\\"}"',
+            error: '{"message":"Job stuck in running state and was rescued","name":"RescuerError"}',
           },
         ],
         id: jobId,
@@ -137,23 +144,195 @@ describe("rescuer", () => {
           {
             at: expect.any(String),
             attempt: 1,
-            error: '"{\\"message\\":\\"Job stuck in running state and was rescued\\",\\"name\\":\\"RescuerError\\"}"',
+            error: '{"message":"Job stuck in running state and was rescued","name":"RescuerError"}',
           },
           {
             at: expect.any(String),
             attempt: 2,
-            error: '"{\\"message\\":\\"Job stuck in running state and was rescued\\",\\"name\\":\\"RescuerError\\"}"',
+            error: '{"message":"Job stuck in running state and was rescued","name":"RescuerError"}',
           },
           {
             at: expect.any(String),
             attempt: 3,
-            error: '"{\\"message\\":\\"Job stuck in running state and was rescued\\",\\"name\\":\\"RescuerError\\"}"',
+            error: '{"message":"Job stuck in running state and was rescued","name":"RescuerError"}',
           },
         ],
         id: jobId,
         status: "failed",
       }),
     );
+  });
+
+  it("given no stuck jobs, should complete without errors", async () => {
+    await mysqlQueue.upsertQueue("q", { maxRetries: 2 });
+    await mysqlQueue.enqueue("q", [{ name: "foo", payload: {} }]);
+
+    await mysqlQueue.__internal.rescue();
+
+    const jobs = await queryDatabase.query<RowDataPacket[]>(`SELECT * from ${mysqlQueue.jobsTable()};`);
+    expect(jobs[0]).toEqual(expect.objectContaining({ attempts: 0, status: "pending" }));
+  });
+
+  it("given multiple queues with stuck jobs, should rescue all", async () => {
+    await mysqlQueue.upsertQueue("queue-a", { maxRetries: 2 });
+    await mysqlQueue.upsertQueue("queue-b", { maxRetries: 3 });
+    await mysqlQueue.upsertQueue("queue-c", { maxRetries: 1 });
+
+    const {
+      jobIds: [jobId1],
+    } = await mysqlQueue.enqueue("queue-a", [{ name: "job-a", payload: {} }]);
+    const {
+      jobIds: [jobId2],
+    } = await mysqlQueue.enqueue("queue-b", [{ name: "job-b", payload: {} }]);
+    const {
+      jobIds: [jobId3],
+    } = await mysqlQueue.enqueue("queue-c", [{ name: "job-c", payload: {} }]);
+
+    await simulateJobRun(jobId1);
+    await simulateJobRun(jobId2);
+    await simulateJobRun(jobId3);
+
+    await mysqlQueue.__internal.rescue();
+
+    const [job1] = await queryDatabase.query<RowDataPacket[]>(`SELECT * from ${mysqlQueue.jobsTable()} WHERE id = ?;`, [jobId1]);
+    const [job2] = await queryDatabase.query<RowDataPacket[]>(`SELECT * from ${mysqlQueue.jobsTable()} WHERE id = ?;`, [jobId2]);
+    const [job3] = await queryDatabase.query<RowDataPacket[]>(`SELECT * from ${mysqlQueue.jobsTable()} WHERE id = ?;`, [jobId3]);
+
+    expect(job1).toEqual(expect.objectContaining({ attempts: 1, status: "pending" }));
+    expect(job2).toEqual(expect.objectContaining({ attempts: 1, status: "pending" }));
+    expect(job3).toEqual(expect.objectContaining({ attempts: 1, status: "failed" })); // Only 1 retry
+  });
+
+  it("given 100+ stuck jobs, should process first 100", async () => {
+    await mysqlQueue.upsertQueue("q", { maxRetries: 2 });
+
+    const jobs = Array.from({ length: 150 }, (_, i) => ({ name: `job-${i}`, payload: { index: i } }));
+    const { jobIds } = await mysqlQueue.enqueue("q", jobs);
+
+    for (const jobId of jobIds) await simulateJobRun(jobId);
+
+    await mysqlQueue.__internal.rescue();
+
+    const allJobs = await queryDatabase.query<RowDataPacket[]>(`SELECT status, attempts from ${mysqlQueue.jobsTable()} ORDER BY id;`);
+
+    const rescued = allJobs.filter((j) => j.status === "pending" && j.attempts === 1);
+    const stillStuck = allJobs.filter((j) => j.status === "running" && j.attempts === 0);
+
+    expect(rescued.length).toBe(100);
+    expect(stillStuck.length).toBe(50);
+  });
+
+  it("given stuck job with custom backoff, should calculate correct startAfter", async () => {
+    await mysqlQueue.upsertQueue("q", { backoffMultiplier: 2, maxRetries: 3, minDelayMs: 1000 });
+    const {
+      jobIds: [jobId],
+    } = await mysqlQueue.enqueue("q", [{ name: "foo", payload: {} }]);
+
+    await simulateJobRun(jobId);
+    await mysqlQueue.__internal.rescue();
+
+    const [job1] = await queryDatabase.query<RowDataPacket[]>(`SELECT * from ${mysqlQueue.jobsTable()} WHERE id = ?;`, [jobId]);
+
+    expect(job1.attempts).toBe(1);
+    expect(job1.status).toBe("pending");
+
+    // Rescue again to test exponential backoff
+    await simulateJobRun(jobId);
+    await mysqlQueue.__internal.rescue();
+
+    const [job2] = await queryDatabase.query<RowDataPacket[]>(`SELECT * from ${mysqlQueue.jobsTable()} WHERE id = ?;`, [jobId]);
+
+    // After second rescue: attempts=2, startAfter = now + minDelayMs * backoffMultiplier^(attempts-1)
+    // = now + 1000 * 2^(2-1) = now + 1000 * 2^1 = now + 2000ms
+    const startAfter1 = new Date(job1.startAfter).getTime();
+    const startAfter2 = new Date(job2.startAfter).getTime();
+
+    // The second startAfter should be approximately 1000ms later than first (difference in delay calculation)
+    // First had +1000ms, second has +2000ms, so difference in execution time plus 1000ms delay increase
+    expect(job2.attempts).toBe(2);
+    expect(job2.status).toBe("pending");
+    expect(startAfter2).toBeGreaterThan(startAfter1);
+  });
+
+  it("given disposed instance, should not run scheduled rescue", async () => {
+    const testQueue = MysqlQueue({
+      dbUri: DB_URI,
+      loggingLevel: "fatal",
+      tablesPrefix: `${randomUUID().slice(-4)}_`,
+    });
+    await testQueue.globalInitialize();
+
+    const nextRun = testQueue.__internal.getRescuerNextRun();
+    expect(nextRun).toBeDefined();
+
+    await testQueue.globalDestroy();
+    await testQueue.dispose();
+
+    const nextRun2 = testQueue.__internal.getRescuerNextRun();
+    expect(nextRun2).toBeNull();
+  });
+
+  it("given stuck job with deleted queue, should throw queue not found error", async () => {
+    // Create a queue and job normally
+    await mysqlQueue.upsertQueue("q", { maxRetries: 2 });
+    const {
+      jobIds: [jobId],
+    } = await mysqlQueue.enqueue("q", [{ name: "foo", payload: {} }]);
+
+    await simulateJobRun(jobId);
+
+    const [queueInfo] = await queryDatabase.query<RowDataPacket[]>(`SELECT id FROM ${mysqlQueue.queuesTable()} WHERE name = 'q'`);
+    const queueId = queueInfo.id;
+
+    await queryDatabase.query(`SET FOREIGN_KEY_CHECKS = 0`);
+    await queryDatabase.query(`DELETE FROM ${mysqlQueue.queuesTable()} WHERE id = ?`, [queueId]);
+    await queryDatabase.query(`SET FOREIGN_KEY_CHECKS = 1`);
+
+    const jobs = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${mysqlQueue.jobsTable()} WHERE id = ?`, [jobId]);
+    expect(jobs.length).toBe(1);
+
+    await expect(mysqlQueue.__internal.rescue()).rejects.toThrow("Queue not found");
+  });
+
+  it("given jobs in non-running states, should not rescue them", async () => {
+    await mysqlQueue.upsertQueue("q", { maxRetries: 2 });
+
+    // Create 4 jobs
+    const { jobIds } = await mysqlQueue.enqueue("q", [
+      { name: "job1", payload: {} },
+      { name: "job2", payload: {} },
+      { name: "job3", payload: {} },
+      { name: "job4", payload: {} },
+    ]);
+
+    const [jobId1, jobId2, jobId3, jobId4] = jobIds;
+    await queryDatabase.query(`UPDATE ${mysqlQueue.jobsTable()} SET status = 'pending', createdAt = ? WHERE id = ?;`, [
+      subtractMs(40_000_000),
+      jobId1,
+    ]);
+    await queryDatabase.query(`UPDATE ${mysqlQueue.jobsTable()} SET status = 'completed', completedAt = ?, runningAt = ? WHERE id = ?;`, [
+      subtractMs(40_000_000),
+      subtractMs(40_000_000),
+      jobId2,
+    ]);
+    await queryDatabase.query(`UPDATE ${mysqlQueue.jobsTable()} SET status = 'failed', failedAt = ?, runningAt = ? WHERE id = ?;`, [
+      subtractMs(40_000_000),
+      subtractMs(40_000_000),
+      jobId3,
+    ]);
+
+    await simulateJobRun(jobId4);
+
+    await mysqlQueue.__internal.rescue();
+
+    const [job1] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${mysqlQueue.jobsTable()} WHERE id = ?`, [jobId1]);
+    const [job2] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${mysqlQueue.jobsTable()} WHERE id = ?`, [jobId2]);
+    const [job3] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${mysqlQueue.jobsTable()} WHERE id = ?`, [jobId3]);
+    const [job4] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${mysqlQueue.jobsTable()} WHERE id = ?`, [jobId4]);
+    expect(job1).toEqual(expect.objectContaining({ attempts: 0, status: "pending" }));
+    expect(job2).toEqual(expect.objectContaining({ status: "completed" }));
+    expect(job3).toEqual(expect.objectContaining({ status: "failed" }));
+    expect(job4).toEqual(expect.objectContaining({ attempts: 1, status: "pending" }));
   });
 
   async function simulateJobRun(jobId: string) {
