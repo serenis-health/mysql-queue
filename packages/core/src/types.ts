@@ -7,6 +7,10 @@ export interface Options {
   maxPayloadSizeKb?: number;
   tablesPrefix?: string;
   partitionKey?: string;
+  rescuerIntervalMs?: number;
+  rescuerRescueAfterMs?: number;
+  rescuerBatchSize?: number;
+  rescuerRunOnStart?: boolean;
 }
 
 export interface Queue {

@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vitest } from "vitest";
 import { CallbackContext, MysqlQueue } from "../src";
 import { createPool, RowDataPacket } from "mysql2/promise";
+import { approxEqual } from "./utils/approxEqual";
 import { connectionToSession } from "../src/jobProcessor";
 import { Job } from "../src";
 import { randomUUID } from "node:crypto";
@@ -296,8 +297,4 @@ function callsToTimeFromFirst(calls: Date[]) {
   if (calls.length === 0) return [];
   const first = calls[0].getTime();
   return calls.map((call) => call.getTime() - first);
-}
-
-function approxEqual(value: number, expected: number, tolerance: number) {
-  return Math.abs(value - expected) <= tolerance;
 }

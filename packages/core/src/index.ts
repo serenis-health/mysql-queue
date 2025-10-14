@@ -1,5 +1,6 @@
 import { EnqueueParams, JobForInsert, Options, Queue, RetrieveQueueParams, Session, UpsertQueueParams, WorkerCallback } from "./types";
 import { createRescuer } from "./rescuer";
+import { createScheduler } from "./scheduler";
 import { Database } from "./database";
 import { Logger } from "./logger";
 import { randomUUID } from "node:crypto";
@@ -16,16 +17,21 @@ export function MysqlQueue(_options: Options) {
     uri: options.dbUri,
   });
   const workersFactory = WorkersFactory(logger, database);
-  const rescuer = createRescuer(database, logger);
+  const rescuer = createRescuer(database, logger, { batchSize: options.rescuerBatchSize, rescueAfterMs: options.rescuerRescueAfterMs });
+  const rescuerScheduler = createScheduler(rescuer.rescue, logger, {
+    intervalMs: options.rescuerIntervalMs,
+    runOnStart: options.rescuerRunOnStart,
+    taskName: "rescuer",
+  });
 
   return {
-    __internal: { getRescuerNextRun: rescuer.getNextRun, rescue: rescuer.rescue },
+    __internal: { getRescuerNextRun: rescuerScheduler.getNextRun, rescue: rescuer.rescue },
     async countJobs(queueName: string) {
       return database.countJobs(queueName, options.partitionKey);
     },
     async dispose() {
       logger.debug("disposing");
-      rescuer.dispose();
+      rescuerScheduler.stop();
       await workersFactory.stopAll();
       await database.endPool();
       logger.info("disposed");
@@ -67,7 +73,7 @@ export function MysqlQueue(_options: Options) {
     async globalInitialize() {
       logger.debug("starting");
       await database.runMigrations();
-      rescuer.initialize();
+      rescuerScheduler.start();
       logger.info("started");
     },
     jobsTable: database.jobsTable,
@@ -141,5 +147,9 @@ function applyOptionsDefault(options: Options) {
   return {
     ...options,
     partitionKey: options.partitionKey ?? "default",
+    rescuerBatchSize: options.rescuerBatchSize ?? 100,
+    rescuerIntervalMs: options.rescuerIntervalMs ?? 1_800_000, //30m
+    rescuerRescueAfterMs: options.rescuerRescueAfterMs ?? 3_600_000, //1h
+    rescuerRunOnStart: options.rescuerRunOnStart ?? false,
   };
 }
