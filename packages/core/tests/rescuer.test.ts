@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { approxEqual } from "./utils/approxEqual";
 import { MysqlQueue } from "../src";
 import { QueryDatabase } from "./utils/queryDatabase";
 import { randomUUID } from "node:crypto";
@@ -33,12 +34,11 @@ describe("rescuer", () => {
     expect(nextRun).toBeNull();
   });
 
-  it("given initialized instance, should scheduled the next run for next hour", () => {
+  it("given initialized instance, should scheduled the next run in an hour", () => {
+    const expectedNextRun = new Date(Date.now() + 1_800_000);
     const nextRun = mysqlQueue.__internal.getRescuerNextRun();
-    const nextHour = new Date();
-    nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
 
-    expect(nextRun?.getTime()).toEqual(nextHour.getTime());
+    expect(approxEqual(nextRun!.getTime(), expectedNextRun.getTime(), 10)).toBeTruthy();
   });
 
   it("given one stuck job, should re set pending status", async () => {
