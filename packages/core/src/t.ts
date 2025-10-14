@@ -20,7 +20,7 @@ import { MysqlQueue, Session } from "./index";
     await connection.beginTransaction();
     console.log("Processing", j);
     await new Promise((r) => setTimeout(r, 2000));
-    //throw new Error("Foo");
+    throw new Error("Foo");
     await ctx.markJobsAsCompleted(session);
     await connection.commit();
   });

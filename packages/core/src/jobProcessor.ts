@@ -1,6 +1,6 @@
 import { Context, Job, JobWithQueueName, Queue, Session, WorkerCallback } from "./types";
-import { errorToJson, truncateStr } from "./utils";
 import { Database } from "./database";
+import { errorToJson } from "./utils";
 import { Logger } from "./logger";
 import { PoolConnection } from "mysql2/promise";
 
@@ -40,14 +40,7 @@ export function JobProcessor(
           await executeCallbackWithTimeout(connection, jobs, jobIds);
         } catch (error: unknown) {
           const typedError = error as Error;
-          await database.failJobs(
-            connection,
-            jobIds,
-            queue.maxRetries,
-            queue.minDelayMs,
-            queue.backoffMultiplier,
-            truncateStr(typedError.message, 85),
-          );
+          await database.failJobs(connection, jobIds, queue.maxRetries, queue.minDelayMs, queue.backoffMultiplier, typedError);
           logger.error({ error: errorToJson(typedError), jobIds }, `jobProcessor.process.jobsFailHandled`);
           jobs
             .filter((j) => j.attempts >= queue.maxRetries - 1)

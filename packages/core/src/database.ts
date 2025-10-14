@@ -38,7 +38,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
         createdAt TIMESTAMP(3) NOT NULL,
         completedAt TIMESTAMP(3) NULL,
         failedAt TIMESTAMP(3) NULL,
-        latestFailureReason VARCHAR(100) NULL,
+        errors JSON NULL,
         attempts INT DEFAULT 0 NOT NULL,
         priority INT NOT NULL,
         runningAt TIMESTAMP(3) NULL,
@@ -210,7 +210,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       maxRetries: number,
       minDelayMs: number,
       backoffMultiplier: number,
-      errorMessage?: string,
+      error: { message: string; name: string; stack?: string },
     ) {
       const placeholders = jobIds.map(() => "?").join(",");
       await connection.query(
@@ -232,10 +232,18 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
                   WHEN attempts < ? THEN failedAt
                   ELSE NOW()
               END,
-              latestFailureReason = ?
+              errors = JSON_ARRAY_APPEND(
+                    COALESCE(errors, JSON_ARRAY()),
+                    '$',
+                    JSON_OBJECT(
+                      'at', NOW(3),
+                      'attempt', attempts,
+                      'error', JSON_QUOTE(?)
+                    )
+                  )
           WHERE id IN (${placeholders}) AND status = 'running'
         `,
-        [maxRetries, maxRetries, minDelayMs, backoffMultiplier, maxRetries, errorMessage, ...jobIds],
+        [maxRetries, maxRetries, minDelayMs, backoffMultiplier, maxRetries, JSON.stringify(error), ...jobIds],
       );
     },
     async getJobById(connection: PoolConnection, jobId: string) {
@@ -260,6 +268,10 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
         connection.query<RowDataPacket[]>(`SELECT id FROM ${queuesTable()} WHERE name = ? AND partitionKey = ?`, [name, partitionKey]),
       );
       return rows.length ? (rows[0] as { id: string }) : null;
+    },
+    async getQueueById(connection: Connection, queueId: string) {
+      const [rows] = await connection.query<RowDataPacket[]>(`SELECT * FROM ${queuesTable()} WHERE id = ?`, [queueId]);
+      return rows.length ? rows[0] : null;
     },
 
     async isQueuePaused(queueId: string) {
