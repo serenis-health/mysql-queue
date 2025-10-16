@@ -82,11 +82,11 @@ await mysqlQueue.enqueue(queue, { name: "sendEmail", payload: { to: "hello@seren
 
 await mysqlQueue.enqueue(queue, [{ name: "sendEmail", payload: { to: "hello@serenis.it" } }]);
 
-const worker = await mysqlQueue.work(queue, async (job: Job, signal: AbortSignal, connection: Connection) => {
+const worker = await mysqlQueue.work(queue, async ([job]: Job[], signal: AbortSignal, ctx: CallbackContext) => {
   // job contains all job data
   // signal is an AbortSignal that can be called due to a timeout or a worker stop
   // connection has an active transaction that can be used to perform additional operations in the same transaction
-  await emailService.send(job.payload, signal);
+  await emailService.send(job.payload, signal, { idempotenceKey: job.id });
 });
 
 void worker.start(); // start consuming jobs
