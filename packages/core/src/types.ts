@@ -11,6 +11,8 @@ export interface Options {
   rescuerRescueAfterMs?: number;
   rescuerBatchSize?: number;
   rescuerRunOnStart?: boolean;
+  leaderElectionHeartbeatMs?: number;
+  leaderElectionLeaseDurationMs?: number;
 }
 
 export interface Queue {
@@ -92,6 +94,15 @@ export type Session = {
 export type CallbackContext = {
   markJobsAsCompleted: (session: Session) => Promise<void>;
 };
+
+export interface PeriodicJob {
+  name: string;
+  targetQueue: string;
+  cronExpression: string;
+  jobTemplate: Omit<AddParams, "idempotentKey">;
+  catchUpStrategy: "all" | "latest" | "none";
+  maxCatchUp?: number; // default: 100, only applies to 'all' strategy
+}
 
 export type WorkOptions = {
   pollingIntervalMs?: number;
