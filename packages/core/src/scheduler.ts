@@ -15,7 +15,7 @@ export function createScheduler(task: () => Promise<void>, logger: Logger, optio
     nextRun = null;
     running = false;
     taskInProgress = false;
-    logger.debug({ taskName }, "scheduler.stopped");
+    logger.trace({ taskName }, "scheduler.stopped");
   }
 
   function getNextRun() {
@@ -28,14 +28,14 @@ export function createScheduler(task: () => Promise<void>, logger: Logger, optio
 
   async function runSafely() {
     if (taskInProgress) {
-      logger.debug({ taskName }, "scheduler.skipRunTaskInProgress");
+      logger.trace({ taskName }, "scheduler.skipRunTaskInProgress");
       return;
     }
     taskInProgress = true;
     try {
-      logger.debug({ taskName }, "scheduler.runStarted");
+      logger.trace({ taskName }, "scheduler.runStarted");
       await task();
-      logger.debug({ taskName }, "scheduler.runCompleted");
+      logger.trace({ taskName }, "scheduler.runCompleted");
     } catch (err) {
       logger.error({ taskName, ...errorToJson(err as Error) }, "scheduler.runError");
     } finally {
@@ -45,11 +45,11 @@ export function createScheduler(task: () => Promise<void>, logger: Logger, optio
 
   function start() {
     if (running) {
-      logger.warn({ taskName }, "scheduler.alreadyRunning");
+      logger.trace({ taskName }, "scheduler.alreadyRunning");
       return;
     }
     running = true;
-    logger.info({ intervalMs, taskName }, "scheduler.started");
+    logger.debug({ intervalMs, taskName }, "scheduler.started");
     updateNextRun();
     interval = setInterval(() => {
       updateNextRun();

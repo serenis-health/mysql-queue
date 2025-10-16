@@ -56,6 +56,16 @@ describe("mysqlQueue", () => {
           id: 7,
           name: "add-running-status-and-errors",
         },
+        {
+          applied_at: expect.any(Date),
+          id: 8,
+          name: "create-periodic-jobs-state-table",
+        },
+        {
+          applied_at: expect.any(Date),
+          id: 9,
+          name: "create-leader-election-table",
+        },
       ]);
     });
 

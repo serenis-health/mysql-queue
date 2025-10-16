@@ -3,7 +3,7 @@ import { createScheduler } from "./scheduler";
 import { Logger } from "./logger";
 
 describe("scheduler", () => {
-  const loggerMock = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
+  const loggerMock = { debug: vi.fn(), error: vi.fn(), trace: vi.fn() };
   const fakeTask = vi.fn();
 
   beforeEach(() => {
@@ -28,7 +28,7 @@ describe("scheduler", () => {
     await vi.advanceTimersByTimeAsync(1000); // Advance time to trigger the first scheduled run
 
     expect(fakeTask).toHaveBeenCalledTimes(1);
-    expect(loggerMock.debug).toHaveBeenCalledWith(expect.objectContaining({ taskName: "testTask" }), "scheduler.runStarted");
+    expect(loggerMock.trace).toHaveBeenCalledWith(expect.objectContaining({ taskName: "testTask" }), "scheduler.runStarted");
 
     await vi.advanceTimersByTimeAsync(1000); // Advance another interval to ensure it runs again
     expect(fakeTask).toHaveBeenCalledTimes(2);
@@ -83,7 +83,7 @@ describe("scheduler", () => {
     scheduler.stop();
   });
 
-  it("should skip interval ticks when task takes longer than interval (River-style)", async () => {
+  it("should skip interval ticks when task takes longer than interval", async () => {
     let resolveTask: () => void;
     const longRunningTask = vi.fn().mockImplementation(() => {
       return new Promise<void>((resolve) => {
@@ -106,7 +106,7 @@ describe("scheduler", () => {
     // Second interval happens while task is still running - should be skipped
     await vi.advanceTimersByTimeAsync(1000);
     expect(longRunningTask).toHaveBeenCalledTimes(1); // Still 1, not 2
-    expect(loggerMock.debug).toHaveBeenCalledWith(expect.objectContaining({ taskName: "testTask" }), "scheduler.skipRunTaskInProgress");
+    expect(loggerMock.trace).toHaveBeenCalledWith(expect.objectContaining({ taskName: "testTask" }), "scheduler.skipRunTaskInProgress");
 
     // Third interval also skipped
     await vi.advanceTimersByTimeAsync(1000);
