@@ -14,6 +14,7 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
       return Array.from(jobs.values()).map((job) => ({
         catchUpStrategy: job.catchUpStrategy,
         cronExpression: job.cronExpression,
+        includeScheduledTime: job.includeScheduledTime,
         jobTemplate: job.jobTemplate,
         maxCatchUp: job.maxCatchUp,
         name: job.name,
@@ -72,11 +73,21 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
   async function executeJob(job: CronJobInternal, scheduledTime: Date): Promise<void> {
     await database.runWithPoolConnection((connection) =>
       database.runTransaction(async (connection) => {
-        await enqueue(
-          job.targetQueue,
-          { ...job.jobTemplate, idempotentKey: generateIdempotentKey(job.name, scheduledTime) },
-          connectionToSession(connection),
-        );
+        const jobParams = {
+          ...job.jobTemplate,
+          idempotentKey: generateIdempotentKey(job.name, scheduledTime),
+        };
+
+        if (job.includeScheduledTime) {
+          jobParams.payload = {
+            ...(typeof job.jobTemplate.payload === "object" && job.jobTemplate.payload !== null ? job.jobTemplate.payload : {}),
+            _periodic: {
+              scheduledTime: scheduledTime.toISOString(),
+            },
+          };
+        }
+
+        await enqueue(job.targetQueue, jobParams, connectionToSession(connection));
         await database.upsertPeriodicJobState(job.name, scheduledTime, job.nextRunAt, connection);
         logger.info({ cronJobName: job.name, scheduledTime: scheduledTime.toISOString() }, "periodic.jobEnqueued");
       }, connection),
@@ -135,6 +146,7 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
       jobTemplate: Omit<AddParams, "idempotentKey">;
       catchUpStrategy: "all" | "latest" | "none";
       maxCatchUp?: number;
+      includeScheduledTime?: boolean;
     },
     missedRuns: Date[],
   ): Promise<void> {
@@ -145,10 +157,18 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
 
     switch (params.catchUpStrategy) {
       case "all":
-        await handleCatchUpAll(name, targetQueue, params.jobTemplate, missedRuns, params.cronExpression, params.maxCatchUp || 100);
+        await handleCatchUpAll(
+          name,
+          targetQueue,
+          params.jobTemplate,
+          missedRuns,
+          params.cronExpression,
+          params.maxCatchUp || 100,
+          params.includeScheduledTime,
+        );
         break;
       case "latest":
-        await handleCatchUpLatest(name, targetQueue, params.jobTemplate, missedRuns, params.cronExpression);
+        await handleCatchUpLatest(name, targetQueue, params.jobTemplate, missedRuns, params.cronExpression, params.includeScheduledTime);
         break;
       case "none":
         logger.debug({ cronJobName: name, missedCount: missedRuns.length }, "periodic.skippedMissedRuns");
@@ -163,6 +183,7 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
     missedRuns: Date[],
     cronExpression: string,
     maxCatchUp: number,
+    includeScheduledTime?: boolean,
   ): Promise<void> {
     const limit = Math.min(missedRuns.length, maxCatchUp);
 
@@ -170,10 +191,23 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
       database.runTransaction(async (connection) => {
         await enqueue(
           targetQueue,
-          missedRuns.slice(0, limit).map((missedRun) => ({
-            ...jobTemplate,
-            idempotentKey: generateIdempotentKey(name, missedRun),
-          })),
+          missedRuns.slice(0, limit).map((missedRun) => {
+            const jobParams = {
+              ...jobTemplate,
+              idempotentKey: generateIdempotentKey(name, missedRun),
+            };
+
+            if (includeScheduledTime) {
+              jobParams.payload = {
+                ...(typeof jobTemplate.payload === "object" && jobTemplate.payload !== null ? jobTemplate.payload : {}),
+                _periodic: {
+                  scheduledTime: missedRun.toISOString(),
+                },
+              };
+            }
+
+            return jobParams;
+          }),
           connectionToSession(connection),
         );
 
@@ -191,6 +225,7 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
     jobTemplate: Omit<AddParams, "idempotentKey">,
     missedRuns: Date[],
     cronExpression: string,
+    includeScheduledTime?: boolean,
   ): Promise<void> {
     const latestMissed = missedRuns[missedRuns.length - 1];
 
@@ -201,6 +236,14 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
           {
             ...jobTemplate,
             idempotentKey: generateIdempotentKey(name, latestMissed),
+            payload: {
+              ...jobTemplate.payload,
+              ...(includeScheduledTime && {
+                _periodic: {
+                  scheduledTime: latestMissed.toISOString(),
+                },
+              }),
+            },
           },
           connectionToSession(connection),
         );
