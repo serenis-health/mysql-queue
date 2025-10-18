@@ -31,4 +31,4 @@ See [Conventional Commits](https://conventionalcommits.org) for commit guideline
 
 ### Features
 
-* **ui:** first version ([06fd5da](https://github.com/serenis-health/mysql-queue/commit/06fd5daf30f810c751a90ac0650b0cc1b2c3a91a))
+- **ui:** first version ([06fd5da](https://github.com/serenis-health/mysql-queue/commit/06fd5daf30f810c751a90ac0650b0cc1b2c3a91a))
