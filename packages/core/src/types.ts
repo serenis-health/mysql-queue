@@ -69,7 +69,7 @@ export interface RetrieveQueueParams {
 
 export interface AddParams {
   name: string;
-  payload: unknown;
+  payload: Record<string, unknown>;
   priority?: number;
   startAfter?: Date;
   idempotentKey?: string;
@@ -102,6 +102,7 @@ export interface PeriodicJob {
   jobTemplate: Omit<AddParams, "idempotentKey">;
   catchUpStrategy: "all" | "latest" | "none";
   maxCatchUp?: number; // default: 100, only applies to 'all' strategy
+  includeScheduledTime?: boolean; // default: false, adds _periodic.scheduledTime to payload
 }
 
 export type WorkOptions = {
