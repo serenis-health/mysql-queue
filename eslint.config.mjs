@@ -9,7 +9,7 @@ export default tseslint.config(
   eslint.configs.recommended,
   tseslint.configs.recommended,
   cspellESLintPluginRecommended,
-  globalIgnores(["**/dist/**", "lerna.json", "**/.next/**"]),
+  globalIgnores(["**/dist/**", "lerna.json", "**/.next/**", "**components/ui/**"]),
   {
     rules: {
       "@cspell/spellchecker": ["error", {}],
@@ -25,6 +25,12 @@ export default tseslint.config(
       "object-shorthand": ["error"],
       "sort-imports": ["error", { ignoreCase: true }],
       "sort-keys": ["error", "asc", { caseSensitive: true, natural: true }],
+    },
+  },
+  {
+    files: ["packages/ui/**/*.{ts,tsx,js,jsx}"],
+    rules: {
+      "sort-keys": "off",
     },
   },
 );

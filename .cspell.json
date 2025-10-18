@@ -2,5 +2,5 @@
   "ignorePaths": ["dist", "node_modules", "**/*.d.ts"],
   "version": "0.2",
   "language": "en",
-  "words": ["serenis", "dedup", "unixtime"]
+  "words": ["serenis", "dedup", "unixtime", "nums", "vaul", "cmdk"]
 }

@@ -1,5 +1,5 @@
 import { getConnectionById } from "@/lib/connections";
-import { getJobs } from "@/lib/db";
+import { getJobCountsByFilters } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { withErrorHandling } from "@/lib/api-utils";
 
@@ -13,6 +13,6 @@ export const GET = withErrorHandling(async (req: Request) => {
 
   const connection = getConnectionById(connectionId);
 
-  const result = await getJobs(connection.dbUri, params);
-  return NextResponse.json(result);
+  const counts = await getJobCountsByFilters(connection.dbUri, params);
+  return NextResponse.json(counts);
 });
