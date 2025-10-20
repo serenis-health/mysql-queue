@@ -118,7 +118,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       up: `
         CREATE TABLE ${periodicJobsStateTable()} (
           name VARCHAR(255) NOT NULL PRIMARY KEY,
-          lastEnqueuedAt TIMESTAMP(3) NULL,
+          lastRunAt TIMESTAMP(3) NULL,
           nextRunAt TIMESTAMP(3) NOT NULL,
           createdAt TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
           updatedAt TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
@@ -231,6 +231,9 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
         );
       });
     },
+    async deletePeriodicJob(name: string) {
+      await runWithPoolConnection((connection) => connection.query(`DELETE FROM ${periodicJobsStateTable()} WHERE name = ?`, [name]));
+    },
     async deleteQueuesByPartition(partitionKey: string) {
       await runWithPoolConnection(async (connection) => {
         await connection.beginTransaction();
@@ -302,24 +305,11 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       );
       return rows;
     },
-    async getPeriodicJobState(name: string) {
+    async getPeriodicJobByName(name: string) {
       const [rows] = await runWithPoolConnection((connection) =>
         connection.query<RowDataPacket[]>(`SELECT * FROM ${periodicJobsStateTable()} WHERE name = ?`, [name]),
       );
-      return rows.length ? (rows[0] as { lastEnqueuedAt: Date | null; name: string; nextRunAt: Date }) : null;
-    },
-    async getPeriodicJobs() {
-      const [rows] = await runWithPoolConnection((connection) =>
-        connection.query<RowDataPacket[]>(`SELECT * FROM ${periodicJobsStateTable()} ORDER BY name ASC`),
-      );
-      return rows as Array<{
-        createdAt: Date;
-        definition: object | null;
-        lastEnqueuedAt: Date | null;
-        name: string;
-        nextRunAt: Date;
-        updatedAt: Date;
-      }>;
+      return rows.length ? (rows[0] as { lastRunAt: Date | null; name: string; nextRunAt: Date }) : null;
     },
     async getQueueById(connection: Connection, queueId: string) {
       const [rows] = await connection.query<RowDataPacket[]>(`SELECT * FROM ${queuesTable()} WHERE id = ?`, [queueId]);
@@ -369,7 +359,6 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
         return connection.query(`UPDATE ${queuesTable()} SET paused = TRUE WHERE name = ? AND partitionKey = ?`, [queueName, partitionKey]);
       });
     },
-    periodicJobsStateTable,
     queuesTable,
     async releaseLeadership(instanceId: string) {
       await runWithPoolConnection((connection) =>
@@ -533,12 +522,12 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
         [JSON.stringify(definition), name],
       );
     },
-    async upsertPeriodicJobState(name: string, lastEnqueuedAt: Date | null, nextRunAt: Date, connection: PoolConnection) {
+    async upsertPeriodicJobState(name: string, lastRunAt: Date | null, nextRunAt: Date, connection: PoolConnection) {
       await connection.query(
-        `INSERT INTO ${periodicJobsStateTable()} (name, lastEnqueuedAt, nextRunAt)
+        `INSERT INTO ${periodicJobsStateTable()} (name, lastRunAt, nextRunAt)
            VALUES (?, ?, ?)
-           ON DUPLICATE KEY UPDATE lastEnqueuedAt = ?, nextRunAt = ?`,
-        [name, lastEnqueuedAt, nextRunAt, lastEnqueuedAt, nextRunAt],
+           ON DUPLICATE KEY UPDATE lastRunAt = ?, nextRunAt = ?`,
+        [name, lastRunAt, nextRunAt, lastRunAt, nextRunAt],
       );
     },
   };

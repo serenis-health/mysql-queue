@@ -55,8 +55,8 @@ export function MysqlQueue(_options: Options) {
     async dispose() {
       logger.debug("disposing");
       rescuerScheduler.stop();
-      periodic.stop();
       await leaderElection.stop();
+      periodic.stop();
       await workersFactory.stopAll();
       await database.endPool();
       logger.info("disposed");
@@ -125,6 +125,7 @@ export function MysqlQueue(_options: Options) {
       logger.debug({ queue }, "queueCreated");
       return queue;
     },
+    waitForPendingPeriodicExecutions: periodic.waitForPendingExecutions,
     async work(queueName: string, callback: WorkerCallback, _options: WorkOptions = {}) {
       const options = applyWorkOptionsDefault(_options);
       const queue = await retrieveQueue({ name: queueName });

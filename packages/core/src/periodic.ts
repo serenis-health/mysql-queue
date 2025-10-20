@@ -8,6 +8,7 @@ import { MysqlQueue } from "./index";
 export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], database: Database) {
   const jobs = new Map<string, CronJobInternal>();
   let isRunning = false;
+  const pendingExecutions = new Map<string, Promise<void>>();
 
   return {
     list(): PeriodicJob[] {
@@ -18,6 +19,7 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
         jobTemplate: job.jobTemplate,
         maxCatchUp: job.maxCatchUp,
         name: job.name,
+        nextRunAt: job.nextRunAt,
         targetQueue: job.targetQueue,
       }));
     },
@@ -27,9 +29,9 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
       const existingJob = jobs.get(job.name);
       if (existingJob?.timer) clearTimeout(existingJob.timer);
 
-      const state = await database.getPeriodicJobState(job.name);
-      if (state?.lastEnqueuedAt) {
-        const missedRuns = calculateMissedRuns(job.cronExpression, state.lastEnqueuedAt);
+      const state = await database.getPeriodicJobByName(job.name);
+      if (state?.lastRunAt) {
+        const missedRuns = calculateMissedRuns(job.cronExpression, state.lastRunAt);
         if (missedRuns.length > 0) await handleMissedRuns(job.name, job.targetQueue, job, missedRuns);
       }
 
@@ -43,12 +45,13 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
       logger.debug({ job }, "periodic.jobRegistered");
       scheduleNextOrExecute(internalJob);
     },
-    remove(name: string): boolean {
+    async remove(name: string): Promise<boolean> {
       const job = jobs.get(name);
       if (!job) return false;
       if (job.timer) clearTimeout(job.timer);
       jobs.delete(name);
-      logger.info({ cronJobName: name }, "cronScheduler.jobRemoved");
+      await database.deletePeriodicJob(name);
+      logger.info({ cronJobName: name }, "periodic.jobRemoved");
       return true;
     },
     start(): void {
@@ -66,11 +69,16 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
           job.timer = undefined;
         }
       }
-      logger.info("cronScheduler.stopped");
+      logger.info("periodic.stopped");
+    },
+    async waitForPendingExecutions() {
+      await Promise.all(pendingExecutions.values());
     },
   };
 
   async function executeJob(job: CronJobInternal, scheduledTime: Date): Promise<void> {
+    if (!isRunning) return;
+    if (!jobs.has(job.name)) return;
     await database.runWithPoolConnection((connection) =>
       database.runTransaction(async (connection) => {
         const jobParams = {
@@ -95,33 +103,40 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
   }
 
   function scheduleNextOrExecute(job: CronJobInternal): void {
-    if (!isRunning) return;
+    if (!isRunning || !jobs.has(job.name)) return;
+
     const delay = job.nextRunAt.getTime() - Date.now();
+
     if (delay < 0) {
       logger.warn({ cronJobName: job.name, nextRunAt: job.nextRunAt.toISOString() }, "periodic.jobOverdue");
-      executeAndHandleJob();
+      executeJobAndScheduleNext();
     } else {
-      job.timer = setTimeout(executeAndHandleJob, delay);
+      job.timer = setTimeout(executeJobAndScheduleNext, delay);
+    }
+
+    function executeJobAndScheduleNext() {
+      const execution = executeJob(job, job.nextRunAt)
+        .then(() => handleJobResult())
+        .catch((error: Error) => handleJobResult(error))
+        .finally(() => pendingExecutions.delete(job.name));
+
+      pendingExecutions.set(job.name, execution);
     }
 
     function handleJobResult(error?: Error) {
-      if (error) logger.error({ cronJobName: job.name, error }, "periodic.executionFailed");
+      if (error) {
+        logger.error({ cronJobName: job.name, error }, "periodic.executionFailed");
+      }
       job.nextRunAt = getNextRun(job.cronExpression, job.nextRunAt);
       scheduleNextOrExecute(job);
     }
-
-    function executeAndHandleJob() {
-      executeJob(job, job.nextRunAt)
-        .then(() => handleJobResult())
-        .catch(handleJobResult);
-    }
   }
 
-  function calculateMissedRuns(cronExpression: string, lastEnqueuedAt: Date): Date[] {
+  function calculateMissedRuns(cronExpression: string, lastRunAt: Date): Date[] {
     const now = new Date();
     const missedRuns: Date[] = [];
-    let currentRun = getNextRun(cronExpression, lastEnqueuedAt);
-    while (currentRun < now) {
+    let currentRun = getNextRun(cronExpression, lastRunAt);
+    while (currentRun <= now) {
       missedRuns.push(currentRun);
       currentRun = getNextRun(cronExpression, currentRun);
     }
