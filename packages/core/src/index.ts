@@ -48,7 +48,11 @@ export function MysqlQueue(_options: Options) {
   });
 
   return {
-    __internal: { getRescuerNextRun: rescuerScheduler.getNextRun, rescue: rescuer.rescue },
+    __internal: {
+      getRescuerNextRun: rescuerScheduler.getNextRun,
+      rescue: rescuer.rescue,
+      waitForPendingPeriodicExecutions: periodic.waitForPendingExecutions,
+    },
     async countJobs(queueName: string) {
       return database.countJobs(queueName, options.partitionKey);
     },
@@ -57,6 +61,7 @@ export function MysqlQueue(_options: Options) {
       rescuerScheduler.stop();
       await leaderElection.stop();
       periodic.stop();
+      await periodic.waitForPendingExecutions();
       await workersFactory.stopAll();
       await database.endPool();
       logger.info("disposed");
@@ -125,7 +130,6 @@ export function MysqlQueue(_options: Options) {
       logger.debug({ queue }, "queueCreated");
       return queue;
     },
-    waitForPendingPeriodicExecutions: periodic.waitForPendingExecutions,
     async work(queueName: string, callback: WorkerCallback, _options: WorkOptions = {}) {
       const options = applyWorkOptionsDefault(_options);
       const queue = await retrieveQueue({ name: queueName });
@@ -155,7 +159,7 @@ export function MysqlQueue(_options: Options) {
     const affectedRows = await database.addJobs(queueName, jobsForInsert, options.partitionKey, session);
     logger.debug({ jobCount: affectedRows, jobs: jobsForInsert }, "enqueue.jobsAddedToQueue");
     logger.info({ jobCount: affectedRows }, "enqueue.jobsAddedToQueue");
-    return { jobIds: jobsForInsert.map((j) => j.id) };
+    return { enqueuedJobs: affectedRows, jobIds: jobsForInsert.map((j) => j.id) };
   }
 
   async function retrieveQueue(params: RetrieveQueueParams) {
@@ -168,7 +172,7 @@ export function MysqlQueue(_options: Options) {
 
 export type MysqlQueue = ReturnType<typeof MysqlQueue>;
 
-export { CallbackContext, Session, Job, PeriodicJob, PurgePartitionParams,  } from "./types";
+export { CallbackContext, Session, Job, PeriodicJob, PurgePartitionParams } from "./types";
 
 function applyOptionsDefault(options: Options) {
   return {

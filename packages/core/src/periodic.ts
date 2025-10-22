@@ -24,21 +24,29 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
       }));
     },
     async register(job: PeriodicJob): Promise<void> {
-      CronExpressionParser.parse(job.cronExpression);
+      CronExpressionParser.parse(job.cronExpression, { tz: "UTC" });
 
       const existingJob = jobs.get(job.name);
       if (existingJob?.timer) clearTimeout(existingJob.timer);
 
       const state = await database.getPeriodicJobByName(job.name);
+      const nextRunAt = getNextRun(job.cronExpression);
+
       if (state?.lastRunAt) {
         const missedRuns = calculateMissedRuns(job.cronExpression, state.lastRunAt);
-        if (missedRuns.length > 0) await handleMissedRuns(job, missedRuns);
+        if (missedRuns.length > 0) {
+          await handleMissedRuns(job, missedRuns);
+        } else {
+          await database.runWithPoolConnection(async (connection) => {
+            await database.upsertPeriodicJob(job.name, state.lastRunAt, nextRunAt, connection, job);
+          });
+        }
+      } else {
+        await database.runWithPoolConnection(async (connection) => {
+          await database.upsertPeriodicJob(job.name, null, nextRunAt, connection, job);
+        });
       }
 
-      const nextRunAt = getNextRun(job.cronExpression);
-      await database.runWithPoolConnection(async (connection) => {
-        await database.upsertPeriodicJob(job.name, null, nextRunAt, connection, job);
-      });
       const internalJob: PeriodicJobInternal = { ...job, nextRunAt };
       jobs.set(job.name, internalJob);
       logger.debug({ job }, "periodic.jobRegistered");
@@ -48,9 +56,11 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
       const job = jobs.get(name);
       if (!job) return false;
       if (job.timer) clearTimeout(job.timer);
+      const pending = pendingExecutions.get(name);
+      if (pending) await pending;
       jobs.delete(name);
       await database.deletePeriodicJob(name);
-      logger.info({ cronJobName: name }, "periodic.jobRemoved");
+      logger.info({ name }, "periodic.jobRemoved");
       return true;
     },
     start(): void {
@@ -94,9 +104,20 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
           };
         }
 
-        await enqueue(job.targetQueue, jobParams, connectionToSession(connection));
-        await database.upsertPeriodicJob(job.name, scheduledTime, job.nextRunAt, connection, job);
-        logger.info({ cronJobName: job.name, scheduledTime: scheduledTime.toISOString() }, "periodic.jobEnqueued");
+        const { enqueuedJobs } = await enqueue(job.targetQueue, jobParams, connectionToSession(connection));
+        if (!enqueuedJobs || enqueuedJobs === 0) {
+          logger.warn({ name: job.name, scheduledTime: scheduledTime.toISOString() }, "periodic.jobAlreadyEnqueued");
+          return;
+        }
+
+        if (!jobs.has(job.name)) {
+          logger.warn({ name: job.name }, "periodic.jobRemovedDuringExecution");
+          return;
+        }
+
+        const nextScheduledRun = getNextRun(job.cronExpression, scheduledTime);
+        await database.upsertPeriodicJob(job.name, scheduledTime, nextScheduledRun, connection, job);
+        logger.info({ name: job.name, scheduledTime: scheduledTime.toISOString() }, "periodic.jobEnqueued");
       }, connection),
     );
   }
@@ -105,16 +126,31 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
     if (!isRunning || !jobs.has(job.name)) return;
 
     const delay = job.nextRunAt.getTime() - Date.now();
-
     if (delay < 0) {
-      logger.warn({ cronJobName: job.name, nextRunAt: job.nextRunAt.toISOString() }, "periodic.jobOverdue");
+      logger.warn({ name: job.name, nextRunAt: job.nextRunAt.toISOString() }, "periodic.jobOverdue");
       executeJobAndScheduleNext();
     } else {
       job.timer = setTimeout(executeJobAndScheduleNext, delay);
     }
 
     function executeJobAndScheduleNext() {
-      const execution = executeJob(job, job.nextRunAt)
+      const EXECUTION_TIMEOUT_MS = 20_000;
+
+      let timeout: NodeJS.Timeout;
+      const executionWithTimeout = Promise.race([
+        executeJob(job, job.nextRunAt),
+        new Promise(
+          (_, reject) =>
+            (timeout = setTimeout(
+              () => reject(new Error(`Periodic job execution timeout after ${EXECUTION_TIMEOUT_MS}ms`)),
+              EXECUTION_TIMEOUT_MS,
+            )),
+        ),
+      ]).finally(() => {
+        clearTimeout(timeout);
+      });
+
+      const execution = executionWithTimeout
         .then(() => handleJobResult())
         .catch((error: Error) => handleJobResult(error))
         .finally(() => pendingExecutions.delete(job.name));
@@ -124,7 +160,17 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
 
     function handleJobResult(error?: Error) {
       if (error) {
-        logger.error({ cronJobName: job.name, error }, "periodic.executionFailed");
+        logger.error({ error, name: job.name }, "periodic.executionFailed");
+        const RETRY_DELAY_MS = 5_000;
+        logger.warn(
+          {
+            name: job.name,
+            retryInMs: RETRY_DELAY_MS,
+          },
+          "periodic.retryingAfterDelay",
+        );
+        job.timer = setTimeout(() => scheduleNextOrExecute(job), RETRY_DELAY_MS);
+        return;
       }
       job.nextRunAt = getNextRun(job.cronExpression, job.nextRunAt);
       scheduleNextOrExecute(job);
@@ -143,7 +189,7 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
   }
 
   function getNextRun(cronExpression: string, fromDate: Date = new Date()): Date {
-    const interval = CronExpressionParser.parse(cronExpression, { currentDate: fromDate });
+    const interval = CronExpressionParser.parse(cronExpression, { currentDate: fromDate, tz: "UTC" });
     return interval.next().toDate();
   }
 
@@ -153,10 +199,7 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
   }
 
   async function handleMissedRuns(job: PeriodicJob, missedRuns: Date[]): Promise<void> {
-    logger.info(
-      { catchUpStrategy: job.catchUpStrategy, cronJobName: job.name, missedCount: missedRuns.length },
-      "periodic.missedRunsDetected",
-    );
+    logger.info({ catchUpStrategy: job.catchUpStrategy, missedCount: missedRuns.length, name: job.name }, "periodic.missedRunsDetected");
 
     switch (job.catchUpStrategy) {
       case "all":
@@ -165,9 +208,15 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
       case "latest":
         await handleCatchUpLatest(job, missedRuns);
         break;
-      case "none":
-        logger.debug({ cronJobName: job.name, missedCount: missedRuns.length }, "periodic.skippedMissedRuns");
+      case "none": {
+        logger.debug({ missedCount: missedRuns.length, name: job.name }, "periodic.skippedMissedRuns");
+        // Still update lastRunAt to prevent detecting same missed runs on next restart
+        const latestMissed = missedRuns[missedRuns.length - 1];
+        await database.runWithPoolConnection(async (connection) => {
+          await database.upsertPeriodicJob(job.name, latestMissed, getNextRun(job.cronExpression), connection, job);
+        });
         break;
+      }
     }
   }
 
@@ -199,7 +248,7 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
         );
 
         if (missedRuns.length > limit) {
-          logger.warn({ cronJobName: job.name, maxCatchUp: limit, missedCount: missedRuns.length }, "periodic.hitMaxCatchUpLimit");
+          logger.warn({ maxCatchUp: limit, missedCount: missedRuns.length, name: job.name }, "periodic.hitMaxCatchUpLimit");
         }
         await database.upsertPeriodicJob(job.name, missedRuns[limit - 1], getNextRun(job.cronExpression), connection, job);
       }, connection),
