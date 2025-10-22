@@ -201,7 +201,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       if (result.length === 0) throw new Error("Session returned an empty array");
       if (!("affectedRows" in result[0])) throw new Error("Session did not return affected rows");
       if (result[0].affectedRows === 0) throw new Error("Unable to add jobs, maybe queue does not exist");
-      return result[0].affectedRows;
+      return result[0].affectedRows as number;
     },
     async countJobs(queueName: string, partitionKey: string) {
       const [rows] = await runWithPoolConnection((connection) =>

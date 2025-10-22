@@ -200,7 +200,7 @@ describe("periodic jobs", () => {
 
       await vi.advanceTimersByTimeAsync(100);
       await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
-      await instance.waitForPendingPeriodicExecutions();
+      await instance.__internal.waitForPendingPeriodicExecutions();
 
       const jobs = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.jobsTable()}`);
       expect(jobs[0].payload).toHaveProperty("_periodic");
@@ -225,7 +225,7 @@ describe("periodic jobs", () => {
 
       await vi.advanceTimersByTimeAsync(100);
       await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
-      await instance.waitForPendingPeriodicExecutions();
+      await instance.__internal.waitForPendingPeriodicExecutions();
 
       const jobs = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.jobsTable()}`);
       expect(jobs[0].payload).not.toHaveProperty("_periodic");
@@ -242,7 +242,7 @@ describe("periodic jobs", () => {
           catchUpStrategy: "latest",
           cronExpression: "*/5 * * * *",
           jobTemplate: {
-            name: "test-job",
+            name: randomUUID(),
             payload: { data: "test" },
           },
           name: randomUUID(),
@@ -260,11 +260,11 @@ describe("periodic jobs", () => {
         // Simulate a restart 15 minutes later
         vi.setSystemTime(new Date("2024-01-01T00:15:00.000Z"));
         await instance.registerPeriodicJob(job);
-        await instance.waitForPendingPeriodicExecutions();
+        await instance.__internal.waitForPendingPeriodicExecutions();
 
         const jobs = await queryDatabase.query<RowDataPacket[]>(
           `SELECT * FROM ${instance.jobsTable()} WHERE name = ? ORDER BY idempotentKey`,
-          ["test-job"],
+          [job.jobTemplate.name],
         );
         expect(jobs).toHaveLength(1);
       });
@@ -456,5 +456,39 @@ describe("periodic jobs", () => {
       // Should have same number of jobs (idempotent key prevents duplicates)
       expect(secondRunJobs.length).toBe(firstJobCount);
     });
+  });
+
+  it("should update database nextRunAt to the next scheduled time after execution", async () => {
+    vi.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
+
+    const periodicJobName = randomUUID();
+    const job: PeriodicJob = {
+      catchUpStrategy: "none",
+      cronExpression: "*/5 * * * *",
+      jobTemplate: {
+        name: "test-job",
+        payload: { data: "test" },
+      },
+      name: periodicJobName,
+      targetQueue: "default",
+    };
+
+    await instance.registerPeriodicJob(job);
+    const [initialState] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${getPeriodicJobsTable()} WHERE name = ?`, [
+      periodicJobName,
+    ]);
+    expect(initialState.lastRunAt).toBeNull();
+    expect(new Date(initialState.nextRunAt).toISOString()).toBe("2024-01-01T00:05:00.000Z");
+
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    await instance.__internal.waitForPendingPeriodicExecutions();
+
+    const [stateAfterExecution] = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${getPeriodicJobsTable()} WHERE name = ?`, [
+      periodicJobName,
+    ]);
+
+    expect(new Date(stateAfterExecution.lastRunAt).toISOString()).toBe("2024-01-01T00:05:00.000Z");
+    expect(new Date(stateAfterExecution.nextRunAt).toISOString()).toBe("2024-01-01T00:10:00.000Z");
   });
 });
