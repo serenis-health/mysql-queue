@@ -122,7 +122,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
           nextRunAt TIMESTAMP(3) NOT NULL,
           createdAt TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
           updatedAt TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
-          definition JSON NULL,
+          definition JSON NOT NULL,
           INDEX idx_nextRunAt (nextRunAt)
         )`,
     },
@@ -514,20 +514,12 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
         );
       });
     },
-    async upsertPeriodicJobDefinition(name: string, definition: object, connection: PoolConnection) {
+    async upsertPeriodicJob(name: string, lastRunAt: Date | null, nextRunAt: Date, connection: PoolConnection, definition: object) {
       await connection.query(
-        `UPDATE ${periodicJobsStateTable()}
-         SET definition = ?
-         WHERE name = ?`,
-        [JSON.stringify(definition), name],
-      );
-    },
-    async upsertPeriodicJobState(name: string, lastRunAt: Date | null, nextRunAt: Date, connection: PoolConnection) {
-      await connection.query(
-        `INSERT INTO ${periodicJobsStateTable()} (name, lastRunAt, nextRunAt)
-           VALUES (?, ?, ?)
+        `INSERT INTO ${periodicJobsStateTable()} (name, lastRunAt, nextRunAt, definition)
+           VALUES (?, ?, ?, ?)
            ON DUPLICATE KEY UPDATE lastRunAt = ?, nextRunAt = ?`,
-        [name, lastRunAt, nextRunAt, lastRunAt, nextRunAt],
+        [name, lastRunAt, nextRunAt, definition ? JSON.stringify(definition) : null, lastRunAt, nextRunAt],
       );
     },
   };
