@@ -1,12 +1,12 @@
-import { AddParams, PeriodicJob } from "./types";
 import { connectionToSession } from "./jobProcessor";
 import { CronExpressionParser } from "cron-parser";
 import { Database } from "./database";
 import { Logger } from "./logger";
 import { MysqlQueue } from "./index";
+import { PeriodicJob } from "./types";
 
 export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], database: Database) {
-  const jobs = new Map<string, CronJobInternal>();
+  const jobs = new Map<string, PeriodicJobInternal>();
   let isRunning = false;
   const pendingExecutions = new Map<string, Promise<void>>();
 
@@ -32,15 +32,14 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
       const state = await database.getPeriodicJobByName(job.name);
       if (state?.lastRunAt) {
         const missedRuns = calculateMissedRuns(job.cronExpression, state.lastRunAt);
-        if (missedRuns.length > 0) await handleMissedRuns(job.name, job.targetQueue, job, missedRuns);
+        if (missedRuns.length > 0) await handleMissedRuns(job, missedRuns);
       }
 
       const nextRunAt = getNextRun(job.cronExpression);
       await database.runWithPoolConnection(async (connection) => {
-        await database.upsertPeriodicJobState(job.name, null, nextRunAt, connection);
-        await database.upsertPeriodicJobDefinition(job.name, job, connection);
+        await database.upsertPeriodicJob(job.name, null, nextRunAt, connection, job);
       });
-      const internalJob: CronJobInternal = { ...job, nextRunAt };
+      const internalJob: PeriodicJobInternal = { ...job, nextRunAt };
       jobs.set(job.name, internalJob);
       logger.debug({ job }, "periodic.jobRegistered");
       scheduleNextOrExecute(internalJob);
@@ -76,7 +75,7 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
     },
   };
 
-  async function executeJob(job: CronJobInternal, scheduledTime: Date): Promise<void> {
+  async function executeJob(job: PeriodicJobInternal, scheduledTime: Date): Promise<void> {
     if (!isRunning) return;
     if (!jobs.has(job.name)) return;
     await database.runWithPoolConnection((connection) =>
@@ -96,13 +95,13 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
         }
 
         await enqueue(job.targetQueue, jobParams, connectionToSession(connection));
-        await database.upsertPeriodicJobState(job.name, scheduledTime, job.nextRunAt, connection);
+        await database.upsertPeriodicJob(job.name, scheduledTime, job.nextRunAt, connection, job);
         logger.info({ cronJobName: job.name, scheduledTime: scheduledTime.toISOString() }, "periodic.jobEnqueued");
       }, connection),
     );
   }
 
-  function scheduleNextOrExecute(job: CronJobInternal): void {
+  function scheduleNextOrExecute(job: PeriodicJobInternal): void {
     if (!isRunning || !jobs.has(job.name)) return;
 
     const delay = job.nextRunAt.getTime() - Date.now();
@@ -153,68 +152,41 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
     return `periodic:${jobName}:${roundedTime.toISOString()}`;
   }
 
-  async function handleMissedRuns(
-    name: string,
-    targetQueue: string,
-    params: {
-      cronExpression: string;
-      jobTemplate: Omit<AddParams, "idempotentKey">;
-      catchUpStrategy: "all" | "latest" | "none";
-      maxCatchUp?: number;
-      includeScheduledTime?: boolean;
-    },
-    missedRuns: Date[],
-  ): Promise<void> {
+  async function handleMissedRuns(job: PeriodicJob, missedRuns: Date[]): Promise<void> {
     logger.info(
-      { catchUpStrategy: params.catchUpStrategy, cronJobName: name, missedCount: missedRuns.length },
+      { catchUpStrategy: job.catchUpStrategy, cronJobName: job.name, missedCount: missedRuns.length },
       "periodic.missedRunsDetected",
     );
 
-    switch (params.catchUpStrategy) {
+    switch (job.catchUpStrategy) {
       case "all":
-        await handleCatchUpAll(
-          name,
-          targetQueue,
-          params.jobTemplate,
-          missedRuns,
-          params.cronExpression,
-          params.maxCatchUp || 100,
-          params.includeScheduledTime,
-        );
+        await handleCatchUpAll(job, missedRuns);
         break;
       case "latest":
-        await handleCatchUpLatest(name, targetQueue, params.jobTemplate, missedRuns, params.cronExpression, params.includeScheduledTime);
+        await handleCatchUpLatest(job, missedRuns);
         break;
       case "none":
-        logger.debug({ cronJobName: name, missedCount: missedRuns.length }, "periodic.skippedMissedRuns");
+        logger.debug({ cronJobName: job.name, missedCount: missedRuns.length }, "periodic.skippedMissedRuns");
         break;
     }
   }
 
-  async function handleCatchUpAll(
-    name: string,
-    targetQueue: string,
-    jobTemplate: Omit<AddParams, "idempotentKey">,
-    missedRuns: Date[],
-    cronExpression: string,
-    maxCatchUp: number,
-    includeScheduledTime?: boolean,
-  ): Promise<void> {
-    const limit = Math.min(missedRuns.length, maxCatchUp);
+  async function handleCatchUpAll(job: PeriodicJob, missedRuns: Date[]): Promise<void> {
+    const limit = Math.min(missedRuns.length, job.maxCatchUp || 100);
 
     await database.runWithPoolConnection((connection) =>
       database.runTransaction(async (connection) => {
         await enqueue(
-          targetQueue,
+          job.targetQueue,
           missedRuns.slice(0, limit).map((missedRun) => {
             const jobParams = {
-              ...jobTemplate,
-              idempotentKey: generateIdempotentKey(name, missedRun),
+              ...job.jobTemplate,
+              idempotentKey: generateIdempotentKey(job.name, missedRun),
             };
 
-            if (includeScheduledTime) {
+            if (job.includeScheduledTime) {
               jobParams.payload = {
-                ...(typeof jobTemplate.payload === "object" && jobTemplate.payload !== null ? jobTemplate.payload : {}),
+                ...(typeof job.jobTemplate.payload === "object" && job.jobTemplate.payload !== null ? job.jobTemplate.payload : {}),
                 _periodic: {
                   scheduledTime: missedRun.toISOString(),
                 },
@@ -227,33 +199,26 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
         );
 
         if (missedRuns.length > limit) {
-          logger.warn({ cronJobName: name, maxCatchUp: limit, missedCount: missedRuns.length }, "periodic.hitMaxCatchUpLimit");
+          logger.warn({ cronJobName: job.name, maxCatchUp: limit, missedCount: missedRuns.length }, "periodic.hitMaxCatchUpLimit");
         }
-        await database.upsertPeriodicJobState(name, missedRuns[limit - 1], getNextRun(cronExpression), connection);
+        await database.upsertPeriodicJob(job.name, missedRuns[limit - 1], getNextRun(job.cronExpression), connection, job);
       }, connection),
     );
   }
 
-  async function handleCatchUpLatest(
-    name: string,
-    targetQueue: string,
-    jobTemplate: Omit<AddParams, "idempotentKey">,
-    missedRuns: Date[],
-    cronExpression: string,
-    includeScheduledTime?: boolean,
-  ): Promise<void> {
+  async function handleCatchUpLatest(job: PeriodicJob, missedRuns: Date[]): Promise<void> {
     const latestMissed = missedRuns[missedRuns.length - 1];
 
     await database.runWithPoolConnection((connection) =>
       database.runTransaction(async (connection) => {
         await enqueue(
-          targetQueue,
+          job.targetQueue,
           {
-            ...jobTemplate,
-            idempotentKey: generateIdempotentKey(name, latestMissed),
+            ...job.jobTemplate,
+            idempotentKey: generateIdempotentKey(job.name, latestMissed),
             payload: {
-              ...jobTemplate.payload,
-              ...(includeScheduledTime && {
+              ...job.jobTemplate.payload,
+              ...(job.includeScheduledTime && {
                 _periodic: {
                   scheduledTime: latestMissed.toISOString(),
                 },
@@ -262,13 +227,13 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
           },
           connectionToSession(connection),
         );
-        await database.upsertPeriodicJobState(name, latestMissed, getNextRun(cronExpression), connection);
+        await database.upsertPeriodicJob(job.name, latestMissed, getNextRun(job.cronExpression), connection, job);
       }, connection),
     );
   }
 }
 
-interface CronJobInternal extends PeriodicJob {
+interface PeriodicJobInternal extends PeriodicJob {
   nextRunAt: Date;
   timer?: NodeJS.Timeout;
 }
