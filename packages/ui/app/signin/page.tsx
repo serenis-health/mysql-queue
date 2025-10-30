@@ -9,7 +9,7 @@ export default function SignInPage() {
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold">Sign in</CardTitle>
-          <CardDescription>Sign in with your Google account to access this page</CardDescription>
+          <CardDescription>Sign in with your Google account to access</CardDescription>
         </CardHeader>
         <CardContent>
           <Button className="w-full" onClick={() => signIn("google", { callbackUrl: "/" })}>

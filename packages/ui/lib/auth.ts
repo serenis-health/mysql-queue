@@ -11,15 +11,22 @@ export const authOptions: NextAuthOptions = {
   ],
   pages: {
     signIn: "/signin",
+    error: "/signupError",
   },
   callbacks: {
     async signIn({ account, profile }) {
-      if (account?.provider !== "google") return false;
+      if (account?.provider !== "google") {
+        throw new Error("Configuration");
+      }
 
       const email = profile?.email;
 
-      if (!email || !email.endsWith(`@${env.ALLOWED_EMAIL_DOMAIN}`)) return false;
-      if (env.ALLOWED_EMAILS && !env.ALLOWED_EMAILS.includes(email)) return false;
+      if (!email || !email.endsWith(`@${env.ALLOWED_EMAIL_DOMAIN}`)) {
+        throw new Error("WrongEmailDomain");
+      }
+      if (env.ALLOWED_EMAILS && !env.ALLOWED_EMAILS.includes(email)) {
+        throw new Error("NotWhitelisted");
+      }
       return true;
     },
     async jwt({ token, account, profile }) {
