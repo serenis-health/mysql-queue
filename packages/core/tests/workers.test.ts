@@ -37,8 +37,8 @@ describe("workers", () => {
 
     beforeEach(async () => {
       await mysqlQueue.upsertQueue(queueName, { maxDurationMs: 10_000 });
-      worker1 = await mysqlQueue.work(queueName, Worker1HandlerMock.handle, undefined, 5);
-      worker2 = await mysqlQueue.work(queueName, Worker2HandlerMock.handle, undefined, 5);
+      worker1 = await mysqlQueue.work(queueName, Worker1HandlerMock.handle, { callbackBatchSize: 5, pollingBatchSize: 5 });
+      worker2 = await mysqlQueue.work(queueName, Worker2HandlerMock.handle, { callbackBatchSize: 5, pollingBatchSize: 5 });
     });
 
     afterEach(async () => {
@@ -103,7 +103,7 @@ describe("workers", () => {
       };
       const queueName = "test_queue2";
       await mysqlQueue.upsertQueue(queueName, { backoffMultiplier: 2, maxRetries: 4 });
-      worker = await mysqlQueue.work(queueName, Worker1HandlerMock.handle, 100);
+      worker = await mysqlQueue.work(queueName, Worker1HandlerMock.handle, { pollingIntervalMs: 100 });
       void worker.start();
 
       const promise = mysqlQueue.getJobExecutionPromise(queueName, 4);
@@ -124,7 +124,7 @@ describe("workers", () => {
       };
       const queueName = "test_queue";
       await mysqlQueue.upsertQueue(queueName, { maxDurationMs: 1000, maxRetries: 1 });
-      worker = await mysqlQueue.work(queueName, Worker1HandlerMock.handle, 100);
+      worker = await mysqlQueue.work(queueName, Worker1HandlerMock.handle, { pollingIntervalMs: 100 });
       void worker.start();
 
       const promise = mysqlQueue.getJobExecutionPromise(queueName, 1);
@@ -149,7 +149,7 @@ describe("workers", () => {
       const WorkerHandlerMock = { handle: vitest.fn() };
       const queueName = "test_queue";
       await mysqlQueue.upsertQueue(queueName);
-      worker = await mysqlQueue.work(queueName, WorkerHandlerMock.handle, 100);
+      worker = await mysqlQueue.work(queueName, WorkerHandlerMock.handle, { pollingIntervalMs: 100 });
       void worker.start();
 
       const promise = mysqlQueue.getJobExecutionPromise(queueName, 3);
@@ -171,7 +171,7 @@ describe("workers", () => {
       const WorkerHandlerMock = { handle: vitest.fn() };
       const queueName = "test_queue";
       await mysqlQueue.upsertQueue(queueName);
-      worker = await mysqlQueue.work(queueName, WorkerHandlerMock.handle, 100);
+      worker = await mysqlQueue.work(queueName, WorkerHandlerMock.handle, { pollingIntervalMs: 100 });
       void worker.start();
 
       const promise = mysqlQueue.getJobExecutionPromise(queueName, 1);
@@ -197,7 +197,7 @@ describe("workers", () => {
       const queueName = "test_queue";
       const maxRetries = 3;
       await mysqlQueue.upsertQueue(queueName, { maxRetries });
-      worker = await mysqlQueue.work(queueName, WorkerHandlerMock.handle, 100, undefined, OnJobFailedMock);
+      worker = await mysqlQueue.work(queueName, WorkerHandlerMock.handle, { onJobFailed: OnJobFailedMock, pollingIntervalMs: 10 });
       void worker.start();
 
       const promise = mysqlQueue.getJobExecutionPromise(queueName, maxRetries);
@@ -244,7 +244,7 @@ describe("workers", () => {
             connection.release();
           }
         },
-        100,
+        { pollingIntervalMs: 100 },
       );
       void worker.start();
 

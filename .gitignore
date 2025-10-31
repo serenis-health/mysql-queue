@@ -1,5 +1,6 @@
 dist
 .next
 .env*
+packages/core/scripts
 
 *-debug.log
