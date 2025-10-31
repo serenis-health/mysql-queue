@@ -1,4 +1,14 @@
-import { EnqueueParams, JobForInsert, Options, Queue, RetrieveQueueParams, Session, UpsertQueueParams, WorkerCallback } from "./types";
+import {
+  EnqueueParams,
+  JobForInsert,
+  Options,
+  Queue,
+  RetrieveQueueParams,
+  Session,
+  UpsertQueueParams,
+  WorkerCallback,
+  WorkOptions,
+} from "./types";
 import { createRescuer } from "./rescuer";
 import { createScheduler } from "./scheduler";
 import { Database } from "./database";
@@ -119,15 +129,10 @@ export function MysqlQueue(_options: Options) {
       logger.debug({ queue }, "queueCreated");
       return queue;
     },
-    async work(
-      queueName: string,
-      callback: WorkerCallback,
-      pollingIntervalMs = 500,
-      batchSize = 1,
-      onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void,
-    ) {
+    async work(queueName: string, callback: WorkerCallback, _options: WorkOptions = {}) {
+      const options = applyWorkOptionsDefault(_options);
       const queue = await retrieveQueue({ name: queueName });
-      return workersFactory.create(callback, pollingIntervalMs, batchSize, queue, onJobFailed);
+      return workersFactory.create(callback, queue, options);
     },
   };
 
@@ -151,5 +156,14 @@ function applyOptionsDefault(options: Options) {
     rescuerIntervalMs: options.rescuerIntervalMs ?? 1_800_000, //30m
     rescuerRescueAfterMs: options.rescuerRescueAfterMs ?? 3_600_000, //1h
     rescuerRunOnStart: options.rescuerRunOnStart ?? false,
+  };
+}
+
+function applyWorkOptionsDefault(options?: WorkOptions) {
+  return {
+    ...options,
+    callbackBatchSize: options?.callbackBatchSize ?? 1,
+    pollingBatchSize: options?.pollingBatchSize ?? 1,
+    pollingIntervalMs: options?.pollingIntervalMs ?? 500,
   };
 }

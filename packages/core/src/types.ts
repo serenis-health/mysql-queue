@@ -92,3 +92,10 @@ export type Session = {
 export type CallbackContext = {
   markJobsAsCompleted: (session: Session) => Promise<void>;
 };
+
+export type WorkOptions = {
+  pollingIntervalMs?: number;
+  callbackBatchSize?: number;
+  onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void;
+  pollingBatchSize?: number;
+};

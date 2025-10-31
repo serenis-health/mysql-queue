@@ -1,7 +1,7 @@
+import { JobProcessor, JobProcessorOptions } from "./jobProcessor";
 import { JobWithQueueName, Queue, WorkerCallback } from "./types";
 import { Database } from "./database";
 import { errorToJson } from "./utils";
-import { JobProcessor } from "./jobProcessor";
 import { Logger } from "./logger";
 import { randomUUID } from "node:crypto";
 
@@ -12,19 +12,17 @@ export function WorkersFactory(logger: Logger, database: Database) {
   return {
     create(
       callback: WorkerCallback,
-      pollingIntervalMs = 500,
-      batchSize = 1,
       queue: Queue,
-      onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void,
+      options: {
+        pollingIntervalMs: number;
+        callbackBatchSize: number;
+        pollingBatchSize: number;
+        onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void;
+      },
     ) {
-      const worker = Worker(
-        callback,
-        pollingIntervalMs,
-        batchSize,
-        logger,
-        database,
-        queue,
-        (job) => {
+      const worker = Worker(database, callback, queue, logger, {
+        ...options,
+        onJobProcessed: (job) => {
           const tracker = jobExecutionTrackers[queue.name];
           if (tracker) {
             tracker.remaining -= 1;
@@ -35,8 +33,7 @@ export function WorkersFactory(logger: Logger, database: Database) {
             }
           }
         },
-        onJobFailed,
-      );
+      });
       workers.push(worker);
       return worker;
     },
@@ -56,22 +53,13 @@ export function WorkersFactory(logger: Logger, database: Database) {
 
 export type Worker = ReturnType<typeof Worker>;
 
-export function Worker(
-  callback: WorkerCallback,
-  pollingIntervalMs = 500,
-  batchSize = 1,
-  logger: Logger,
-  database: Database,
-  queue: Queue,
-  onJobProcessed?: (job: JobWithQueueName) => void,
-  onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void,
-) {
+export function Worker(database: Database, callback: WorkerCallback, queue: Queue, logger: Logger, options: JobProcessorOptions) {
   const workerId = randomUUID();
   const wLogger = logger.child({ workerId });
 
   const controller = new AbortController();
   const { signal } = controller;
-  const jobProcessor = JobProcessor(database, wLogger, queue, callback, signal, batchSize, onJobProcessed, onJobFailed);
+  const jobProcessor = JobProcessor(database, wLogger, queue, callback, signal, options);
 
   let stopPromiseResolve: (() => void) | null = null;
   const stopPromise = new Promise<void>((resolve) => {
@@ -80,12 +68,19 @@ export function Worker(
 
   return {
     async start() {
-      wLogger.info({ batchSize, pollingIntervalMs }, `worker.starting`);
+      wLogger.info(
+        {
+          callbackBatchSize: options.callbackBatchSize,
+          pollingBatchSize: options.pollingBatchSize,
+          pollingIntervalMs: options.pollingIntervalMs,
+        },
+        `worker.starting`,
+      );
 
       while (!signal.aborted) {
         try {
-          await jobProcessor.processBatch();
-          await sleep(pollingIntervalMs);
+          await jobProcessor.process();
+          await sleep(options.pollingIntervalMs);
         } catch (error) {
           const typedError = error as Error;
           wLogger.error({ error: errorToJson(typedError) }, `worker.loop.error`);

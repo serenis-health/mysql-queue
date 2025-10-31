@@ -268,10 +268,10 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       );
       return rows.length ? (rows[0] as Job) : null;
     },
-    async getPendingJobs(connection: PoolConnection, queueId: string, batchSize: number) {
+    async getPendingJobs(connection: PoolConnection, queueId: string, limit: number) {
       const [rows] = await connection.query<RowDataPacket[]>(
         `SELECT * FROM ${jobsTable()} FORCE INDEX (idx_queueId_status_createdAt_priority_id) WHERE queueId = ? AND status = ? AND startAfter <= ? ORDER BY createdAt ASC, priority DESC LIMIT ? FOR UPDATE SKIP LOCKED`,
-        [queueId, "pending", new Date(), batchSize],
+        [queueId, "pending", new Date(), limit],
       );
       return rows;
     },
