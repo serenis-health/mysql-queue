@@ -77,7 +77,7 @@ export function ChartAreaInteractive({
   // Filter data based on time range
   const filteredData = React.useMemo(() => {
     const selectedOption = timeRangeOptions.find((opt) => opt.value === timeRange);
-    if (!selectedOption || data.length === 0) return data;
+    if (!selectedOption || !data || data.length === 0) return data || [];
 
     const now = new Date();
     const startDate = new Date(now);
