@@ -266,7 +266,7 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
             ...job.jobTemplate,
             idempotentKey: generateIdempotentKey(job.name, latestMissed),
             payload: {
-              ...job.jobTemplate.payload,
+              ...(typeof job.jobTemplate.payload === "object" && job.jobTemplate.payload !== null ? job.jobTemplate.payload : {}),
               ...(job.includeScheduledTime && {
                 _periodic: {
                   scheduledTime: latestMissed.toISOString(),

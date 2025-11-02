@@ -67,16 +67,16 @@ export interface RetrieveQueueParams {
   name: string;
 }
 
-export interface AddParams {
+export interface AddParams<T> {
   name: string;
-  payload: Record<string, unknown>;
+  payload: T;
   priority?: number;
   startAfter?: Date;
   idempotentKey?: string;
   pendingDedupKey?: string;
 }
 
-export type EnqueueParams = AddParams | AddParams[];
+export type EnqueueParams<T> = AddParams<T> | AddParams<T>[];
 
 export interface PurgePartitionParams {
   partitionKey: string;
@@ -99,7 +99,7 @@ export interface PeriodicJob {
   name: string;
   targetQueue: string;
   cronExpression: string;
-  jobTemplate: Omit<AddParams, "idempotentKey">;
+  jobTemplate: Omit<AddParams<unknown>, "idempotentKey">;
   catchUpStrategy: "all" | "latest" | "none";
   maxCatchUp?: number; // default: 100, only applies to 'all' strategy
   includeScheduledTime?: boolean; // default: false, adds _periodic.scheduledTime to payload

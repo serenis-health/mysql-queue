@@ -137,7 +137,7 @@ export function MysqlQueue(_options: Options) {
     },
   };
 
-  async function enqueue(queueName: string, params: EnqueueParams, session?: Session) {
+  async function enqueue<T = unknown>(queueName: string, params: EnqueueParams<T>, session?: Session) {
     const now = new Date();
     const jobsForInsert: JobForInsert[] = (Array.isArray(params) ? params : [params]).map((p) => {
       const payloadStr = JSON.stringify(p.payload);
