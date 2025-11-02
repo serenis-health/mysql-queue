@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.8.1](https://github.com/serenis-health/mysql-queue/compare/0.8.0...0.8.1) (2025-11-02)
+
+### Bug Fixes
+
+* **core:** enqueue generic ([c71ca94](https://github.com/serenis-health/mysql-queue/commit/c71ca94cafaa2f332773048d436a62c5e40fc059))
+
 # [0.8.0](https://github.com/serenis-health/mysql-queue/compare/0.7.0...0.8.0) (2025-11-02)
 
 ### Features
