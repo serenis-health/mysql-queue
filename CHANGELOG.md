@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [0.8.0](https://github.com/serenis-health/mysql-queue/compare/0.7.0...0.8.0) (2025-11-02)
+
+### Bug Fixes
+
+* **ui:** skip env validation during build ([71cfc52](https://github.com/serenis-health/mysql-queue/commit/71cfc5213929bccfd76563d2dfd6c2ef1ecc7a4b))
+
+### Features
+
+* **core:** add ability to include periodic schedule time in payload ([dfa39d8](https://github.com/serenis-health/mysql-queue/commit/dfa39d810ad28ec46344a6ea4cdfa009c0f8c389))
+* **core:** add periodic jobs scheduler and simple leader election ([3cde71f](https://github.com/serenis-health/mysql-queue/commit/3cde71f78d876a2d96bf25726204ee68de35a881))
+* **core:** introduce concurrent job processing ([7fcbf85](https://github.com/serenis-health/mysql-queue/commit/7fcbf85f591225e093123bebb4a26a888fa033b8))
+* **ui:** introduce custom signup error page ([7c1700e](https://github.com/serenis-health/mysql-queue/commit/7c1700eaf2b54c06c29dba47ab10d0706347e0e1))
+* **ui:** introduce dashboard and new tables ([0702154](https://github.com/serenis-health/mysql-queue/commit/070215481a0aad185230cf10533579356b934fec))
+
 # [0.7.0](https://github.com/serenis-health/mysql-queue/compare/0.6.1...0.7.0) (2025-10-16)
 
 ### Features

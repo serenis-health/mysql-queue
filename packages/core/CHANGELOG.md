@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [0.8.0](https://github.com/serenis-health/mysql-queue/compare/0.7.0...0.8.0) (2025-11-02)
+
+### Features
+
+* **core:** add ability to include periodic schedule time in payload ([dfa39d8](https://github.com/serenis-health/mysql-queue/commit/dfa39d810ad28ec46344a6ea4cdfa009c0f8c389))
+* **core:** add periodic jobs scheduler and simple leader election ([3cde71f](https://github.com/serenis-health/mysql-queue/commit/3cde71f78d876a2d96bf25726204ee68de35a881))
+* **core:** introduce concurrent job processing ([7fcbf85](https://github.com/serenis-health/mysql-queue/commit/7fcbf85f591225e093123bebb4a26a888fa033b8))
+
 # [0.7.0](https://github.com/serenis-health/mysql-queue/compare/0.6.1...0.7.0) (2025-10-16)
 
 ### Features
