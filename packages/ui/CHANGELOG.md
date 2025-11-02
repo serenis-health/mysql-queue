@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [0.8.0](https://github.com/serenis-health/mysql-queue/compare/0.7.0...0.8.0) (2025-11-02)
+
+### Bug Fixes
+
+* **ui:** skip env validation during build ([71cfc52](https://github.com/serenis-health/mysql-queue/commit/71cfc5213929bccfd76563d2dfd6c2ef1ecc7a4b))
+
+### Features
+
+* **ui:** introduce custom signup error page ([7c1700e](https://github.com/serenis-health/mysql-queue/commit/7c1700eaf2b54c06c29dba47ab10d0706347e0e1))
+* **ui:** introduce dashboard and new tables ([0702154](https://github.com/serenis-health/mysql-queue/commit/070215481a0aad185230cf10533579356b934fec))
+
 # [0.7.0](https://github.com/serenis-health/mysql-queue/compare/0.6.1...0.7.0) (2025-10-16)
 
 **Note:** Version bump only for package @serenis-health/mysql-queue-ui
