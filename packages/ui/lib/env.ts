@@ -34,4 +34,4 @@ function validateEnv(): Env {
   return envSchema.parse(process.env);
 }
 
-export const env = validateEnv();
+export const env = process.env.NEXT_PHASE === "phase-production-build" ? ({} as Env) : validateEnv();
