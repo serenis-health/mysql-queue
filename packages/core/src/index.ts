@@ -9,6 +9,8 @@ import {
   WorkerCallback,
   WorkOptions,
 } from "./types";
+import { createLeaderElection } from "./leaderElection";
+import { createPeriodic } from "./periodic";
 import { createRescuer } from "./rescuer";
 import { createScheduler } from "./scheduler";
 import { Database } from "./database";
@@ -33,48 +35,44 @@ export function MysqlQueue(_options: Options) {
     runOnStart: options.rescuerRunOnStart,
     taskName: "rescuer",
   });
+  const periodic = createPeriodic(logger, enqueue, database);
+  const leaderElection = createLeaderElection(logger, database, {
+    heartbeatIntervalMs: options.leaderElectionHeartbeatMs,
+    leaseDurationMs: options.leaderElectionLeaseDurationMs,
+    onBecomeLeader: () => {
+      periodic.start();
+    },
+    onLoseLeadership: () => {
+      periodic.stop();
+    },
+  });
 
   return {
-    __internal: { getRescuerNextRun: rescuerScheduler.getNextRun, rescue: rescuer.rescue },
+    __internal: {
+      getRescuerNextRun: rescuerScheduler.getNextRun,
+      rescue: rescuer.rescue,
+      waitForPendingPeriodicExecutions: periodic.waitForPendingExecutions,
+    },
     async countJobs(queueName: string) {
       return database.countJobs(queueName, options.partitionKey);
     },
     async dispose() {
       logger.debug("disposing");
       rescuerScheduler.stop();
+      await leaderElection.stop();
+      periodic.stop();
+      await periodic.waitForPendingExecutions();
       await workersFactory.stopAll();
       await database.endPool();
       logger.info("disposed");
       logger.flush();
     },
-    async enqueue(queueName: string, params: EnqueueParams, session?: Session) {
-      const now = new Date();
-      const jobsForInsert: JobForInsert[] = (Array.isArray(params) ? params : [params]).map((p) => {
-        const payloadStr = JSON.stringify(p.payload);
-        const byteLength = new TextEncoder().encode(payloadStr).length;
-        if (byteLength > (options.maxPayloadSizeKb || 16) * 1024) throw new Error(`Payload size exceeds maximum allowed size`);
-        return {
-          createdAt: now,
-          id: randomUUID(),
-          idempotentKey: p.idempotentKey,
-          name: p.name,
-          payload: payloadStr,
-          pendingDedupKey: p.pendingDedupKey,
-          priority: p.priority || 0,
-          startAfter: p.startAfter || now,
-          status: "pending",
-        };
-      });
-
-      const affectedRows = await database.addJobs(queueName, jobsForInsert, options.partitionKey, session);
-      logger.debug({ jobCount: affectedRows, jobs: jobsForInsert }, "enqueue.jobsAddedToQueue");
-      logger.info({ jobCount: affectedRows }, "enqueue.jobsAddedToQueue");
-      return { jobIds: jobsForInsert.map((j) => j.id) };
-    },
+    enqueue,
     async getJobById(id: string) {
       return await database.getJobById(id);
     },
     getJobExecutionPromise: workersFactory.getJobExecutionPromise,
+    getPeriodicJobs: periodic.list,
     async globalDestroy() {
       logger.debug("destroying");
       await database.removeAllTables();
@@ -83,6 +81,7 @@ export function MysqlQueue(_options: Options) {
     async globalInitialize() {
       logger.debug("starting");
       await database.runMigrations();
+      leaderElection.start();
       rescuerScheduler.start();
       logger.info("started");
     },
@@ -101,6 +100,8 @@ export function MysqlQueue(_options: Options) {
       logger.info({ partitionKey: options.partitionKey }, "purged");
     },
     queuesTable: database.queuesTable,
+    registerPeriodicJob: periodic.register,
+    removePeriodicJob: periodic.remove,
     async resumeQueue(queueName: string) {
       logger.debug({ partitionKey: options.partitionKey, queueName }, "resumingQueue");
       await database.resumeQueue(queueName, options.partitionKey);
@@ -136,6 +137,31 @@ export function MysqlQueue(_options: Options) {
     },
   };
 
+  async function enqueue(queueName: string, params: EnqueueParams, session?: Session) {
+    const now = new Date();
+    const jobsForInsert: JobForInsert[] = (Array.isArray(params) ? params : [params]).map((p) => {
+      const payloadStr = JSON.stringify(p.payload);
+      const byteLength = new TextEncoder().encode(payloadStr).length;
+      if (byteLength > (options.maxPayloadSizeKb || 16) * 1024) throw new Error(`Payload size exceeds maximum allowed size`);
+      return {
+        createdAt: now,
+        id: randomUUID(),
+        idempotentKey: p.idempotentKey,
+        name: p.name,
+        payload: payloadStr,
+        pendingDedupKey: p.pendingDedupKey,
+        priority: p.priority || 0,
+        startAfter: p.startAfter || now,
+        status: "pending",
+      };
+    });
+
+    const affectedRows = await database.addJobs(queueName, jobsForInsert, options.partitionKey, session);
+    logger.debug({ jobCount: affectedRows, jobs: jobsForInsert }, "enqueue.jobsAddedToQueue");
+    logger.info({ jobCount: affectedRows }, "enqueue.jobsAddedToQueue");
+    return { enqueuedJobs: affectedRows, jobIds: jobsForInsert.map((j) => j.id) };
+  }
+
   async function retrieveQueue(params: RetrieveQueueParams) {
     const queue = await database.getQueueByName(params.name, options.partitionKey);
     if (!queue) throw new Error(`Queue with name ${params.name}:${options.partitionKey} not found`);
@@ -146,11 +172,13 @@ export function MysqlQueue(_options: Options) {
 
 export type MysqlQueue = ReturnType<typeof MysqlQueue>;
 
-export { CallbackContext, Session, Job, PurgePartitionParams } from "./types";
+export { CallbackContext, Session, Job, PeriodicJob, PurgePartitionParams } from "./types";
 
 function applyOptionsDefault(options: Options) {
   return {
     ...options,
+    leaderElectionHeartbeatMs: options.leaderElectionHeartbeatMs ?? 10_000, //10s
+    leaderElectionLeaseDurationMs: options.leaderElectionLeaseDurationMs ?? 30_000, //30s
     partitionKey: options.partitionKey ?? "default",
     rescuerBatchSize: options.rescuerBatchSize ?? 100,
     rescuerIntervalMs: options.rescuerIntervalMs ?? 1_800_000, //30m

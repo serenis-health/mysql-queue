@@ -1,9 +1,8 @@
 import mysql, { QueryResult } from "mysql2/promise";
 
-export type Database = ReturnType<typeof QueryDatabase>;
-
 export function QueryDatabase(params: { dbUri: string }) {
   const pool = mysql.createPool({
+    timezone: "Z",
     uri: params.dbUri,
     waitForConnections: true,
   });

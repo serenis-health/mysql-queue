@@ -111,6 +111,33 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
         ALTER TABLE ${jobsTable()} ADD COLUMN runningAt TIMESTAMP(3) NULL;
       `,
     },
+    {
+      down: `DROP TABLE IF EXISTS ${periodicJobsStateTable()}`,
+      name: "create-periodic-jobs-state-table",
+      number: 8,
+      up: `
+        CREATE TABLE ${periodicJobsStateTable()} (
+          name VARCHAR(255) NOT NULL PRIMARY KEY,
+          lastRunAt TIMESTAMP(3) NULL,
+          nextRunAt TIMESTAMP(3) NOT NULL,
+          createdAt TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+          updatedAt TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+          definition JSON NOT NULL,
+          INDEX idx_nextRunAt (nextRunAt)
+        )`,
+    },
+    {
+      down: `DROP TABLE IF EXISTS ${leaderElectionTable()}`,
+      name: "create-leader-election-table",
+      number: 9,
+      up: `
+        CREATE TABLE ${leaderElectionTable()} (
+          name VARCHAR(128) PRIMARY KEY DEFAULT 'default',
+          leaderId VARCHAR(36) NOT NULL,
+          electedAt TIMESTAMP(3) NOT NULL,
+          expiresAt TIMESTAMP(3) NOT NULL
+        )`,
+    },
   ];
 
   async function runWithPoolConnection<T>(cb: (connection: PoolConnection) => Promise<T>) {
@@ -174,7 +201,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       if (result.length === 0) throw new Error("Session returned an empty array");
       if (!("affectedRows" in result[0])) throw new Error("Session did not return affected rows");
       if (result[0].affectedRows === 0) throw new Error("Unable to add jobs, maybe queue does not exist");
-      return result[0].affectedRows;
+      return result[0].affectedRows as number;
     },
     async countJobs(queueName: string, partitionKey: string) {
       const [rows] = await runWithPoolConnection((connection) =>
@@ -203,6 +230,9 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
           ],
         );
       });
+    },
+    async deletePeriodicJob(name: string) {
+      await runWithPoolConnection((connection) => connection.query(`DELETE FROM ${periodicJobsStateTable()} WHERE name = ?`, [name]));
     },
     async deleteQueuesByPartition(partitionKey: string) {
       await runWithPoolConnection(async (connection) => {
@@ -275,6 +305,12 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       );
       return rows;
     },
+    async getPeriodicJobByName(name: string) {
+      const [rows] = await runWithPoolConnection((connection) =>
+        connection.query<RowDataPacket[]>(`SELECT * FROM ${periodicJobsStateTable()} WHERE name = ?`, [name]),
+      );
+      return rows.length ? (rows[0] as { lastRunAt: Date | null; name: string; nextRunAt: Date }) : null;
+    },
     async getQueueById(connection: Connection, queueId: string) {
       const [rows] = await connection.query<RowDataPacket[]>(`SELECT * FROM ${queuesTable()} WHERE id = ?`, [queueId]);
       return rows.length ? rows[0] : null;
@@ -324,7 +360,11 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       });
     },
     queuesTable,
-
+    async releaseLeadership(instanceId: string) {
+      await runWithPoolConnection((connection) =>
+        connection.query(`DELETE FROM ${leaderElectionTable()} WHERE name = 'default' AND leaderId = ?`, [instanceId]),
+      );
+    },
     async removeAllTables() {
       const connection = await pool.getConnection();
       await connection.beginTransaction();
@@ -348,6 +388,23 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       } finally {
         pool.releaseConnection(connection);
       }
+    },
+    async renewLeadership(instanceId: string, leaseDurationMs: number) {
+      const expiresAt = new Date(Date.now() + leaseDurationMs);
+
+      const [result] = await runWithPoolConnection((connection) =>
+        connection.query<RowDataPacket[]>(
+          `UPDATE ${leaderElectionTable()}
+           SET expiresAt = ?
+           WHERE name = 'default' AND leaderId = ?`,
+          [expiresAt, instanceId],
+        ),
+      );
+
+      interface UpdateResult {
+        affectedRows: number;
+      }
+      return (result as unknown as UpdateResult).affectedRows > 0;
     },
     async resumeQueue(queueName: string, partitionKey: string) {
       await runWithPoolConnection((connection) => {
@@ -409,6 +466,38 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     },
     runTransaction,
     runWithPoolConnection,
+    async tryAcquireLeadership(instanceId: string, leaseDurationMs: number) {
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + leaseDurationMs);
+
+      return await runWithPoolConnection(async (connection) => {
+        try {
+          // Try to insert as leader if no row exists
+          await connection.query(
+            `INSERT INTO ${leaderElectionTable()} (name, leaderId, electedAt, expiresAt)
+             VALUES ('default', ?, ?, ?)`,
+            [instanceId, now, expiresAt],
+          );
+          return true;
+        } catch (e) {
+          // Row already exists, try to claim if lease expired
+          if (isMysqlError(e) && e.code === "ER_DUP_ENTRY") {
+            const [result] = await connection.query<RowDataPacket[]>(
+              `UPDATE ${leaderElectionTable()}
+               SET leaderId = ?, electedAt = ?, expiresAt = ?
+               WHERE name = 'default' AND expiresAt < ?`,
+              [instanceId, now, expiresAt, now],
+            );
+
+            interface UpdateResult {
+              affectedRows: number;
+            }
+            return (result as unknown as UpdateResult).affectedRows > 0;
+          }
+          throw e;
+        }
+      });
+    },
     async updateQueue(params: DbUpdateQueueParams) {
       await runWithPoolConnection((connection) => {
         return connection.query(
@@ -425,6 +514,14 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
         );
       });
     },
+    async upsertPeriodicJob(name: string, lastRunAt: Date | null, nextRunAt: Date, connection: PoolConnection, definition: object) {
+      await connection.query(
+        `INSERT INTO ${periodicJobsStateTable()} (name, lastRunAt, nextRunAt, definition)
+           VALUES (?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE lastRunAt = ?, nextRunAt = ?`,
+        [name, lastRunAt, nextRunAt, definition ? JSON.stringify(definition) : null, lastRunAt, nextRunAt],
+      );
+    },
   };
 
   function migrationsTable() {
@@ -435,6 +532,12 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
   }
   function jobsTable() {
     return TABLES_NAME_PREFIX + (options.tablesPrefix || "") + "jobs";
+  }
+  function periodicJobsStateTable() {
+    return TABLES_NAME_PREFIX + (options.tablesPrefix || "") + "periodic_jobs";
+  }
+  function leaderElectionTable() {
+    return TABLES_NAME_PREFIX + (options.tablesPrefix || "") + "leader_election";
   }
 
   function isMysqlError(e: unknown): e is { code: string; errno: number } {
