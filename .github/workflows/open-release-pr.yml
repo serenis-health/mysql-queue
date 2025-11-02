@@ -32,7 +32,7 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Build
-        run: pnpm run build
+        run: pnpm --filter @serenis/mysql-queue build
 
       - name: Lerna Version
         env:
