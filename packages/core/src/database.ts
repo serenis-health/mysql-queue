@@ -138,6 +138,18 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
           expiresAt TIMESTAMP(3) NOT NULL
         )`,
     },
+    {
+      down: `
+        ALTER TABLE ${jobsTable()} DROP INDEX idx_queue_name_pending_dedup;
+        ALTER TABLE ${jobsTable()} ADD UNIQUE INDEX idx_queue_name_pending_dedup (queueId, name, (CASE WHEN status = 'pending' THEN pendingDedupKey ELSE NULL END));
+      `,
+      name: "extend-pending-dedup-to-running",
+      number: 10,
+      up: `
+        ALTER TABLE ${jobsTable()} DROP INDEX idx_queue_name_pending_dedup;
+        ALTER TABLE ${jobsTable()} ADD UNIQUE INDEX idx_queue_name_pending_dedup (queueId, name, (CASE WHEN status IN ('pending', 'running') THEN pendingDedupKey ELSE NULL END));
+      `,
+    },
   ];
 
   async function runWithPoolConnection<T>(cb: (connection: PoolConnection) => Promise<T>) {
