@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [0.9.0](https://github.com/serenis-health/mysql-queue/compare/0.8.1...0.9.0) (2025-12-05)
+
+### Features
+
+* **core:** extend pending dedup key also to running state ([f7e4795](https://github.com/serenis-health/mysql-queue/commit/f7e47955c6a0336e13880a6f651d5898d255703a))
+
 ## [0.8.1](https://github.com/serenis-health/mysql-queue/compare/0.8.0...0.8.1) (2025-11-02)
 
 ### Bug Fixes
