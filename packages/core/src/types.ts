@@ -24,6 +24,7 @@ export interface Queue {
   maxDurationMs: number;
   partitionKey: string;
   paused: boolean;
+  sequential: boolean;
 }
 
 export interface Job {
@@ -38,6 +39,7 @@ export interface Job {
   latestFailureReason: string | null;
   queueId: string;
   startAfter: Date;
+  sequentialKey: string | null;
 }
 
 export type JobWithQueueName = Job & { queueName: string };
@@ -52,6 +54,7 @@ export interface JobForInsert {
   createdAt: Date;
   idempotentKey?: string;
   pendingDedupKey?: string;
+  sequentialKey?: string;
 }
 
 export type WorkerCallback = (jobs: Job[], signal: AbortSignal, ctx: CallbackContext) => Promise<void> | void;
@@ -61,6 +64,7 @@ export interface UpsertQueueParams {
   minDelayMs?: number;
   backoffMultiplier?: number | null;
   maxDurationMs?: number;
+  sequential?: boolean;
 }
 
 export interface RetrieveQueueParams {
@@ -74,6 +78,7 @@ export interface AddParams<T> {
   startAfter?: Date;
   idempotentKey?: string;
   pendingDedupKey?: string;
+  sequentialKey?: string;
 }
 
 export type EnqueueParams<T> = AddParams<T> | AddParams<T>[];

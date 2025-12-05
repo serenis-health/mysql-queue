@@ -34,12 +34,14 @@ export function JobProcessor(
   async function claimJobsForProcessing() {
     return await database.runWithPoolConnection(async (connection) => {
       return await database.runTransaction(async (trx) => {
-        const jobs = (await database.getPendingJobs(trx, queue.id, options.pollingBatchSize)) as Job[];
+        const jobs = queue.sequential
+          ? ((await database.getPendingJobsForSequentialQueue(trx, queue.id, options.pollingBatchSize)) as Job[])
+          : ((await database.getPendingJobs(trx, queue.id, options.pollingBatchSize)) as Job[]);
         if (jobs.length === 0) return;
 
         const jobIds = jobs.map((job) => job.id);
         await database.markJobsAsRunning(trx, jobIds);
-        logger.debug({ jobIds }, `jobProcessor.jobsClaimed`);
+        logger.debug({ jobIds, sequential: queue.sequential }, `jobProcessor.jobsClaimed`);
         return jobs;
       }, connection);
     });

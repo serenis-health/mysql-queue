@@ -71,6 +71,11 @@ describe("mysqlQueue", () => {
           id: 10,
           name: "extend-pending-dedup-to-running",
         },
+        {
+          applied_at: expect.any(Date),
+          id: 11,
+          name: "add-sequential",
+        },
       ]);
     });
 
@@ -129,6 +134,7 @@ describe("mysqlQueue", () => {
         name: "test_queue",
         partitionKey: "default",
         paused: 0,
+        sequential: 0,
       });
     });
 
@@ -154,6 +160,7 @@ describe("mysqlQueue", () => {
         name: "test_queue",
         partitionKey: "default",
         paused: 0,
+        sequential: 0,
       });
     });
 
@@ -224,6 +231,7 @@ describe("mysqlQueue", () => {
           priority: 0,
           queueId: expect.any(String),
           runningAt: null,
+          sequentialKey: null,
           startAfter: expect.any(Date),
           status: "pending",
         });
@@ -333,6 +341,7 @@ describe("mysqlQueue", () => {
           priority: 0,
           queueId: expect.any(String),
           runningAt: null,
+          sequentialKey: null,
           startAfter: expect.any(Date),
           status: "pending",
         });

@@ -118,6 +118,7 @@ export function MysqlQueue(_options: Options) {
         name,
         partitionKey: options.partitionKey,
         paused: false,
+        sequential: params.sequential || false,
       };
       if (existingQueue) {
         const queue: Queue = { ...baseQueueParams, id: existingQueue.id, paused: existingQueue.paused };
@@ -151,6 +152,7 @@ export function MysqlQueue(_options: Options) {
         payload: payloadStr,
         pendingDedupKey: p.pendingDedupKey,
         priority: p.priority || 0,
+        sequentialKey: p.sequentialKey,
         startAfter: p.startAfter || now,
         status: "pending",
       };

@@ -150,6 +150,20 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
         ALTER TABLE ${jobsTable()} ADD UNIQUE INDEX idx_queue_name_pending_dedup (queueId, name, (CASE WHEN status IN ('pending', 'running') THEN pendingDedupKey ELSE NULL END));
       `,
     },
+    {
+      down: `
+        ALTER TABLE ${jobsTable()} DROP COLUMN sequentialKey;
+        ALTER TABLE ${jobsTable()} DROP INDEX idx_queueId_status_sequentialKey;
+        ALTER TABLE ${queuesTable()} DROP COLUMN sequential;
+      `,
+      name: "add-sequential",
+      number: 11,
+      up: `
+        ALTER TABLE ${queuesTable()} ADD COLUMN sequential BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE ${jobsTable()} ADD COLUMN sequentialKey VARCHAR(255) NULL;
+        ALTER TABLE ${jobsTable()} ADD INDEX idx_queueId_status_sequentialKey (queueId, status, sequentialKey);
+      `,
+    },
   ];
 
   async function runWithPoolConnection<T>(cb: (connection: PoolConnection) => Promise<T>) {
@@ -187,16 +201,17 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
           j.createdAt,
           j.idempotentKey,
           j.pendingDedupKey,
+          j.sequentialKey,
         ]),
         queueName,
         partitionKey,
       ];
 
       const sql = `
-          INSERT INTO ${jobsTable()} (id, name, payload, status, priority, startAfter, createdAt, idempotentKey, pendingDedupKey, queueId)
-          SELECT j.*, q.id FROM (SELECT ? AS id, ? AS name, ? AS payload, ? AS status, ? AS priority, ? AS startAfter, ? AS createdAt, ? AS idempotentKey, ? AS pendingDedupKey ${params
+          INSERT INTO ${jobsTable()} (id, name, payload, status, priority, startAfter, createdAt, idempotentKey, pendingDedupKey, sequentialKey, queueId)
+          SELECT j.*, q.id FROM (SELECT ? AS id, ? AS name, ? AS payload, ? AS status, ? AS priority, ? AS startAfter, ? AS createdAt, ? AS idempotentKey, ? AS pendingDedupKey, ? AS sequentialKey ${params
             .slice(1)
-            .map(() => "UNION ALL SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?")
+            .map(() => "UNION ALL SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?")
             .join(" ")}) AS j
           JOIN ${queuesTable()} q ON q.name = ? AND q.partitionKey = ?
         `;
@@ -229,7 +244,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     async createQueue(params: DbCreateQueueParams) {
       await runWithPoolConnection((connection) => {
         return connection.query(
-          `INSERT INTO ${queuesTable()} (id, name, maxRetries, minDelayMs, backoffMultiplier, maxDurationMs, partitionKey, paused) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO ${queuesTable()} (id, name, maxRetries, minDelayMs, backoffMultiplier, maxDurationMs, partitionKey, paused, sequential) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             params.id,
             params.name,
@@ -239,6 +254,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
             params.maxDurationMs,
             params.partitionKey,
             params.paused,
+            params.sequential,
           ],
         );
       });
@@ -313,6 +329,29 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     async getPendingJobs(connection: PoolConnection, queueId: string, limit: number) {
       const [rows] = await connection.query<RowDataPacket[]>(
         `SELECT * FROM ${jobsTable()} FORCE INDEX (idx_queueId_status_createdAt_priority_id) WHERE queueId = ? AND status = ? AND startAfter <= ? ORDER BY createdAt ASC, priority DESC LIMIT ? FOR UPDATE SKIP LOCKED`,
+        [queueId, "pending", new Date(), limit],
+      );
+      return rows;
+    },
+    async getPendingJobsForSequentialQueue(connection: PoolConnection, queueId: string, limit: number) {
+      const [rows] = await connection.query<RowDataPacket[]>(
+        `SELECT jobs.* FROM ${jobsTable()} AS jobs
+         WHERE jobs.queueId = ?
+           AND jobs.status = ?
+           AND jobs.startAfter <= ?
+           AND (
+             jobs.sequentialKey IS NULL
+             OR NOT EXISTS (
+               SELECT 1
+               FROM ${jobsTable()} AS running
+               WHERE running.queueId = jobs.queueId
+                 AND running.status = 'running'
+                 AND running.sequentialKey = jobs.sequentialKey
+             )
+           )
+         ORDER BY jobs.createdAt ASC, jobs.priority DESC
+         LIMIT ?
+         FOR UPDATE`,
         [queueId, "pending", new Date(), limit],
       );
       return rows;
@@ -513,7 +552,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     async updateQueue(params: DbUpdateQueueParams) {
       await runWithPoolConnection((connection) => {
         return connection.query(
-          `UPDATE ${queuesTable()} SET maxRetries = ?, minDelayMs = ?, backoffMultiplier = ?, maxDurationMs = ?, partitionKey = ?, paused = ? WHERE id = ?`,
+          `UPDATE ${queuesTable()} SET maxRetries = ?, minDelayMs = ?, backoffMultiplier = ?, maxDurationMs = ?, partitionKey = ?, paused = ?, sequential = ? WHERE id = ?`,
           [
             params.maxRetries,
             params.minDelayMs,
@@ -521,6 +560,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
             params.maxDurationMs,
             params.partitionKey || null,
             params.paused,
+            params.sequential,
             params.id,
           ],
         );
