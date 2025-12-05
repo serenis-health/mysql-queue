@@ -66,6 +66,11 @@ describe("mysqlQueue", () => {
           id: 9,
           name: "create-leader-election-table",
         },
+        {
+          applied_at: expect.any(Date),
+          id: 10,
+          name: "extend-pending-dedup-to-running",
+        },
       ]);
     });
 
@@ -491,6 +496,47 @@ describe("mysqlQueue", () => {
         `SELECT id, name, pendingDedupKey, status FROM ${instance.jobsTable()} ORDER BY createdAt`,
       );
       expect(jobs).toHaveLength(1);
+    });
+
+    it("should prevent duplicate jobs with same pendingDedupKey while running", async () => {
+      let resolveJob: () => void;
+      const jobPromise = new Promise<void>((resolve) => {
+        resolveJob = resolve;
+      });
+
+      let resolveHandlerCalled: () => void;
+      const handlerCalledPromise = new Promise<void>((resolve) => {
+        resolveHandlerCalled = resolve;
+      });
+
+      const worker = await instance.work(queueName, async () => {
+        resolveHandlerCalled();
+        await jobPromise;
+      });
+      void worker.start();
+
+      await instance.enqueue(queueName, {
+        name: "send-to-sts",
+        payload: { invoiceId: 789 },
+        pendingDedupKey: "invoice-789",
+      });
+
+      await handlerCalledPromise;
+
+      await instance.enqueue(queueName, {
+        name: "send-to-sts",
+        payload: { duplicate: true, invoiceId: 789 },
+        pendingDedupKey: "invoice-789",
+      });
+
+      const jobs = await queryDatabase.query<RowDataPacket[]>(`SELECT * FROM ${instance.jobsTable()} ORDER BY createdAt`);
+
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0].status).toBe("running");
+      expect(jobs[0].pendingDedupKey).toBe("invoice-789");
+
+      resolveJob!();
+      await worker.stop();
     });
 
     it("should allow re-enqueuing after job completion", async () => {
