@@ -71,6 +71,16 @@ describe("mysqlQueue", () => {
           id: 10,
           name: "extend-pending-dedup-to-running",
         },
+        {
+          applied_at: expect.any(Date),
+          id: 11,
+          name: "add-cleanup-index",
+        },
+        {
+          applied_at: expect.any(Date),
+          id: 12,
+          name: "add-queue-cleanup-retention",
+        },
       ]);
     });
 
@@ -122,6 +132,7 @@ describe("mysqlQueue", () => {
       expect(isValidUUID(row.id)).toBeTruthy();
       expect(row).toEqual({
         backoffMultiplier: 2,
+        cleanupRetentionMs: null,
         id: expect.any(String),
         maxDurationMs: 5000,
         maxRetries: 3,
@@ -147,6 +158,7 @@ describe("mysqlQueue", () => {
 
       expect(row).toEqual({
         backoffMultiplier: 3,
+        cleanupRetentionMs: null,
         id: expect.any(String),
         maxDurationMs: 10000,
         maxRetries: 5,
