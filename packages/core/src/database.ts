@@ -150,6 +150,18 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
         ALTER TABLE ${jobsTable()} ADD UNIQUE INDEX idx_queue_name_pending_dedup (queueId, name, (CASE WHEN status IN ('pending', 'running') THEN pendingDedupKey ELSE NULL END));
       `,
     },
+    {
+      down: `ALTER TABLE ${jobsTable()} DROP INDEX idx_status_completedAt_id`,
+      name: "add-cleanup-index",
+      number: 11,
+      up: `CREATE INDEX idx_status_completedAt_id ON ${jobsTable()} (status, completedAt, id)`,
+    },
+    {
+      down: `ALTER TABLE ${queuesTable()} DROP COLUMN cleanupRetentionMs`,
+      name: "add-queue-cleanup-retention",
+      number: 12,
+      up: `ALTER TABLE ${queuesTable()} ADD COLUMN cleanupRetentionMs INT UNSIGNED NULL`,
+    },
   ];
 
   async function runWithPoolConnection<T>(cb: (connection: PoolConnection) => Promise<T>) {
@@ -229,7 +241,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     async createQueue(params: DbCreateQueueParams) {
       await runWithPoolConnection((connection) => {
         return connection.query(
-          `INSERT INTO ${queuesTable()} (id, name, maxRetries, minDelayMs, backoffMultiplier, maxDurationMs, partitionKey, paused) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO ${queuesTable()} (id, name, maxRetries, minDelayMs, backoffMultiplier, maxDurationMs, partitionKey, paused, cleanupRetentionMs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             params.id,
             params.name,
@@ -239,9 +251,30 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
             params.maxDurationMs,
             params.partitionKey,
             params.paused,
+            params.cleanupRetentionMs,
           ],
         );
       });
+    },
+    async deleteCompletedJobsOlderThan(partitionKey: string, globalRetentionMs: number, limit: number): Promise<number> {
+      const [header] = await runWithPoolConnection((connection) =>
+        connection.query(
+          `DELETE FROM ${jobsTable()} WHERE id IN (
+             SELECT j.id FROM (
+               SELECT j2.id FROM ${jobsTable()} j2
+               INNER JOIN ${queuesTable()} q ON j2.queueId = q.id
+               WHERE q.partitionKey = ?
+                 AND j2.status = 'completed'
+                 AND j2.completedAt IS NOT NULL
+                 AND j2.completedAt < DATE_SUB(NOW(3), INTERVAL COALESCE(q.cleanupRetentionMs, ?) / 1000 SECOND)
+               ORDER BY j2.completedAt ASC, j2.id ASC
+               LIMIT ?
+             ) AS j
+           )`,
+          [partitionKey, globalRetentionMs, limit],
+        ),
+      );
+      return (header as { affectedRows?: number })?.affectedRows ?? 0;
     },
     async deletePeriodicJob(name: string) {
       await runWithPoolConnection((connection) => connection.query(`DELETE FROM ${periodicJobsStateTable()} WHERE name = ?`, [name]));
@@ -513,7 +546,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     async updateQueue(params: DbUpdateQueueParams) {
       await runWithPoolConnection((connection) => {
         return connection.query(
-          `UPDATE ${queuesTable()} SET maxRetries = ?, minDelayMs = ?, backoffMultiplier = ?, maxDurationMs = ?, partitionKey = ?, paused = ? WHERE id = ?`,
+          `UPDATE ${queuesTable()} SET maxRetries = ?, minDelayMs = ?, backoffMultiplier = ?, maxDurationMs = ?, partitionKey = ?, paused = ?, cleanupRetentionMs = ? WHERE id = ?`,
           [
             params.maxRetries,
             params.minDelayMs,
@@ -521,6 +554,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
             params.maxDurationMs,
             params.partitionKey || null,
             params.paused,
+            params.cleanupRetentionMs,
             params.id,
           ],
         );

@@ -9,6 +9,7 @@ import {
   WorkerCallback,
   WorkOptions,
 } from "./types";
+import { createCleanup } from "./cleanup";
 import { createLeaderElection } from "./leaderElection";
 import { createPeriodic } from "./periodic";
 import { createRescuer } from "./rescuer";
@@ -36,19 +37,32 @@ export function MysqlQueue(_options: Options) {
     taskName: "rescuer",
   });
   const periodic = createPeriodic(logger, enqueue, database);
+  const cleanup = createCleanup(database, logger, {
+    partitionKey: options.partitionKey,
+    retentionMs: options.cleanupRetentionMs,
+  });
+  const cleanupScheduler = createScheduler(cleanup.cleanup, logger, {
+    intervalMs: options.cleanupIntervalMs,
+    runOnStart: false,
+    taskName: "cleanup",
+  });
   const leaderElection = createLeaderElection(logger, database, {
     heartbeatIntervalMs: options.leaderElectionHeartbeatMs,
     leaseDurationMs: options.leaderElectionLeaseDurationMs,
     onBecomeLeader: () => {
       periodic.start();
+      cleanupScheduler.start();
     },
     onLoseLeadership: () => {
       periodic.stop();
+      cleanupScheduler.stop();
     },
   });
 
   return {
     __internal: {
+      cleanup: cleanup.cleanup,
+      getCleanupNextRun: cleanupScheduler.getNextRun,
       getRescuerNextRun: rescuerScheduler.getNextRun,
       rescue: rescuer.rescue,
       waitForPendingPeriodicExecutions: periodic.waitForPendingExecutions,
@@ -59,6 +73,7 @@ export function MysqlQueue(_options: Options) {
     async dispose() {
       logger.debug("disposing");
       rescuerScheduler.stop();
+      cleanupScheduler.stop();
       await leaderElection.stop();
       periodic.stop();
       await periodic.waitForPendingExecutions();
@@ -112,6 +127,7 @@ export function MysqlQueue(_options: Options) {
       const existingQueue = await database.getQueueByName(name, options.partitionKey);
       const baseQueueParams: Omit<Queue, "id"> = {
         backoffMultiplier: params.backoffMultiplier && params.backoffMultiplier > 0 ? params.backoffMultiplier : 2,
+        cleanupRetentionMs: params.cleanupRetentionMs ?? null,
         maxDurationMs: params.maxDurationMs || 5000,
         maxRetries: params.maxRetries || 3,
         minDelayMs: params.minDelayMs || 1000,
@@ -177,6 +193,8 @@ export { CallbackContext, Session, Job, PeriodicJob, PurgePartitionParams } from
 function applyOptionsDefault(options: Options) {
   return {
     ...options,
+    cleanupIntervalMs: options.cleanupIntervalMs ?? ONE_DAY_MS,
+    cleanupRetentionMs: options.cleanupRetentionMs ?? THIRTY_DAYS_MS,
     leaderElectionHeartbeatMs: options.leaderElectionHeartbeatMs ?? 10_000, //10s
     leaderElectionLeaseDurationMs: options.leaderElectionLeaseDurationMs ?? 30_000, //30s
     partitionKey: options.partitionKey ?? "default",
@@ -195,3 +213,6 @@ function applyWorkOptionsDefault(options?: WorkOptions) {
     pollingIntervalMs: options?.pollingIntervalMs ?? 500,
   };
 }
+
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
