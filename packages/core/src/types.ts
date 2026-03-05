@@ -13,6 +13,8 @@ export interface Options {
   rescuerRunOnStart?: boolean;
   leaderElectionHeartbeatMs?: number;
   leaderElectionLeaseDurationMs?: number;
+  cleanupRetentionMs?: number;
+  cleanupIntervalMs?: number;
 }
 
 export interface Queue {
@@ -24,6 +26,7 @@ export interface Queue {
   maxDurationMs: number;
   partitionKey: string;
   paused: boolean;
+  cleanupRetentionMs: number | null;
 }
 
 export interface Job {
@@ -61,6 +64,7 @@ export interface UpsertQueueParams {
   minDelayMs?: number;
   backoffMultiplier?: number | null;
   maxDurationMs?: number;
+  cleanupRetentionMs?: number | null;
 }
 
 export interface RetrieveQueueParams {
