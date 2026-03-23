@@ -11,14 +11,13 @@ export function createCleanup(database: Database, logger: Logger, options: Clean
     async cleanup() {
       let totalDeleted = 0;
       let iterations = 0;
+      let deleted: number;
 
-      while (iterations < MAX_ITERATIONS_PER_RUN) {
-        const deleted = await database.deleteCompletedJobsOlderThan(partitionKey, retentionMs, BATCH_SIZE);
+      do {
+        deleted = await database.deleteCompletedJobsOlderThan(partitionKey, retentionMs, BATCH_SIZE);
         totalDeleted += deleted;
         iterations += 1;
-
-        if (deleted < BATCH_SIZE) break;
-      }
+      } while (iterations < MAX_ITERATIONS_PER_RUN && deleted >= BATCH_SIZE);
 
       if (totalDeleted > 0) {
         logger.info({ batchCount: iterations, totalDeleted }, "cleanup.completedJobsDeleted");
