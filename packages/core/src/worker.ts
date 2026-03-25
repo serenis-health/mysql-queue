@@ -79,8 +79,8 @@ export function Worker(database: Database, callback: WorkerCallback, queue: Queu
 
       while (!signal.aborted) {
         try {
-          await jobProcessor.process();
-          await sleep(options.pollingIntervalMs);
+          const hadJobs = await jobProcessor.process();
+          if (!hadJobs) await sleep(options.pollingIntervalMs);
         } catch (error) {
           const typedError = error as Error;
           wLogger.error({ error: errorToJson(typedError) }, `worker.loop.error`);

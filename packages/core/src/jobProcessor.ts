@@ -14,13 +14,13 @@ export function JobProcessor(
   options: JobProcessorOptions,
 ) {
   return {
-    async process() {
-      if (workerAbortSignal.aborted) return;
-      if (await database.isQueuePaused(queue.id)) return;
+    async process(): Promise<boolean> {
+      if (workerAbortSignal.aborted) return false;
+      if (await database.isQueuePaused(queue.id)) return false;
       const start = Date.now();
 
       const jobs = await claimJobsForProcessing();
-      if (!jobs) return;
+      if (!jobs) return false;
 
       const result = await executeJobsConcurrently(jobs, options.callbackBatchSize, workerAbortSignal, executeCallbackWithTimeout);
 
@@ -28,6 +28,7 @@ export function JobProcessor(
 
       logger.debug({ elapsedSeconds: (Date.now() - start) / 1000, jobCount: jobs.length }, `jobProcessor.processed`);
       jobs.forEach((job) => options.onJobProcessed?.({ ...job, queueName: queue.name }));
+      return true;
     },
   };
 
