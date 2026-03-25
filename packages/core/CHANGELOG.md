@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [0.10.0](https://github.com/serenis-health/mysql-queue/compare/0.9.0...0.10.0) (2026-03-25)
+
+### Features
+
+* **cleanup:** add automatic cleanup of old completed jobs with per-queue retention ([6434359](https://github.com/serenis-health/mysql-queue/commit/6434359219efbefd8880ef25c88afca76d0babbb))
+* **core:** avoid unnecessary sleep between polling cycles when jobs are found ([ed4eade](https://github.com/serenis-health/mysql-queue/commit/ed4eade146a71cce7dde0807424904fb6a0387ba))
+
 # [0.9.0](https://github.com/serenis-health/mysql-queue/compare/0.8.1...0.9.0) (2025-12-05)
 
 ### Features
