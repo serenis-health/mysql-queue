@@ -157,10 +157,10 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       up: `CREATE INDEX idx_status_completedAt_id ON ${jobsTable()} (status, completedAt, id)`,
     },
     {
-      down: `ALTER TABLE ${queuesTable()} DROP COLUMN cleanupRetentionMs`,
+      down: `ALTER TABLE ${queuesTable()} DROP COLUMN cleanupRetentionDays`,
       name: "add-queue-cleanup-retention",
       number: 12,
-      up: `ALTER TABLE ${queuesTable()} ADD COLUMN cleanupRetentionMs INT UNSIGNED NULL`,
+      up: `ALTER TABLE ${queuesTable()} ADD COLUMN cleanupRetentionDays INT UNSIGNED NULL`,
     },
   ];
 
@@ -241,7 +241,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     async createQueue(params: DbCreateQueueParams) {
       await runWithPoolConnection((connection) => {
         return connection.query(
-          `INSERT INTO ${queuesTable()} (id, name, maxRetries, minDelayMs, backoffMultiplier, maxDurationMs, partitionKey, paused, cleanupRetentionMs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO ${queuesTable()} (id, name, maxRetries, minDelayMs, backoffMultiplier, maxDurationMs, partitionKey, paused, cleanupRetentionDays) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             params.id,
             params.name,
@@ -251,12 +251,12 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
             params.maxDurationMs,
             params.partitionKey,
             params.paused,
-            params.cleanupRetentionMs,
+            params.cleanupRetentionDays,
           ],
         );
       });
     },
-    async deleteCompletedJobsOlderThan(partitionKey: string, globalRetentionMs: number, limit: number): Promise<number> {
+    async deleteCompletedJobsOlderThan(partitionKey: string, globalRetentionDays: number, limit: number): Promise<number> {
       const [header] = await runWithPoolConnection((connection) =>
         connection.query(
           `DELETE FROM ${jobsTable()} WHERE id IN (
@@ -266,12 +266,12 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
                WHERE q.partitionKey = ?
                  AND j2.status = 'completed'
                  AND j2.completedAt IS NOT NULL
-                 AND j2.completedAt < DATE_SUB(NOW(3), INTERVAL COALESCE(q.cleanupRetentionMs, ?) / 1000 SECOND)
+                 AND j2.completedAt < DATE_SUB(NOW(3), INTERVAL COALESCE(q.cleanupRetentionDays, ?) DAY)
                ORDER BY j2.completedAt ASC, j2.id ASC
                LIMIT ?
              ) AS j
            )`,
-          [partitionKey, globalRetentionMs, limit],
+          [partitionKey, globalRetentionDays, limit],
         ),
       );
       return (header as { affectedRows?: number })?.affectedRows ?? 0;
@@ -546,7 +546,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     async updateQueue(params: DbUpdateQueueParams) {
       await runWithPoolConnection((connection) => {
         return connection.query(
-          `UPDATE ${queuesTable()} SET maxRetries = ?, minDelayMs = ?, backoffMultiplier = ?, maxDurationMs = ?, partitionKey = ?, paused = ?, cleanupRetentionMs = ? WHERE id = ?`,
+          `UPDATE ${queuesTable()} SET maxRetries = ?, minDelayMs = ?, backoffMultiplier = ?, maxDurationMs = ?, partitionKey = ?, paused = ?, cleanupRetentionDays = ? WHERE id = ?`,
           [
             params.maxRetries,
             params.minDelayMs,
@@ -554,7 +554,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
             params.maxDurationMs,
             params.partitionKey || null,
             params.paused,
-            params.cleanupRetentionMs,
+            params.cleanupRetentionDays,
             params.id,
           ],
         );
