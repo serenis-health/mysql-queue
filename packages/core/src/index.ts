@@ -39,10 +39,10 @@ export function MysqlQueue(_options: Options) {
   const periodic = createPeriodic(logger, enqueue, database);
   const cleanup = createCleanup(database, logger, {
     partitionKey: options.partitionKey,
-    retentionMs: options.cleanupRetentionMs,
+    retentionDays: options.cleanupRetentionDays,
   });
   const cleanupScheduler = createScheduler(cleanup.cleanup, logger, {
-    intervalMs: options.cleanupIntervalMs,
+    intervalMs: options.cleanupIntervalHours * 3600 * 1000,
     runOnStart: false,
     taskName: "cleanup",
   });
@@ -127,7 +127,7 @@ export function MysqlQueue(_options: Options) {
       const existingQueue = await database.getQueueByName(name, options.partitionKey);
       const baseQueueParams: Omit<Queue, "id"> = {
         backoffMultiplier: params.backoffMultiplier && params.backoffMultiplier > 0 ? params.backoffMultiplier : 2,
-        cleanupRetentionMs: params.cleanupRetentionMs ?? null,
+        cleanupRetentionDays: params.cleanupRetentionDays ?? null,
         maxDurationMs: params.maxDurationMs || 5000,
         maxRetries: params.maxRetries || 3,
         minDelayMs: params.minDelayMs || 1000,
@@ -193,8 +193,8 @@ export { CallbackContext, Session, Job, PeriodicJob, PurgePartitionParams } from
 function applyOptionsDefault(options: Options) {
   return {
     ...options,
-    cleanupIntervalMs: options.cleanupIntervalMs ?? ONE_DAY_MS,
-    cleanupRetentionMs: options.cleanupRetentionMs ?? THIRTY_DAYS_MS,
+    cleanupIntervalHours: options.cleanupIntervalHours ?? 24,
+    cleanupRetentionDays: options.cleanupRetentionDays ?? 30,
     leaderElectionHeartbeatMs: options.leaderElectionHeartbeatMs ?? 10_000, //10s
     leaderElectionLeaseDurationMs: options.leaderElectionLeaseDurationMs ?? 30_000, //30s
     partitionKey: options.partitionKey ?? "default",
@@ -213,6 +213,3 @@ function applyWorkOptionsDefault(options?: WorkOptions) {
     pollingIntervalMs: options?.pollingIntervalMs ?? 500,
   };
 }
-
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;

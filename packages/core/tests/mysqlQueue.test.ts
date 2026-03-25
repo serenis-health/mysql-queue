@@ -132,7 +132,7 @@ describe("mysqlQueue", () => {
       expect(isValidUUID(row.id)).toBeTruthy();
       expect(row).toEqual({
         backoffMultiplier: 2,
-        cleanupRetentionMs: null,
+        cleanupRetentionDays: null,
         id: expect.any(String),
         maxDurationMs: 5000,
         maxRetries: 3,
@@ -158,7 +158,7 @@ describe("mysqlQueue", () => {
 
       expect(row).toEqual({
         backoffMultiplier: 3,
-        cleanupRetentionMs: null,
+        cleanupRetentionDays: null,
         id: expect.any(String),
         maxDurationMs: 10000,
         maxRetries: 5,

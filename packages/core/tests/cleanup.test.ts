@@ -17,7 +17,7 @@ describe("cleanup", () => {
   beforeEach(async () => {
     queryDatabase = QueryDatabase({ dbUri: DB_URI });
     mysqlQueue = MysqlQueue({
-      cleanupRetentionMs: 1000,
+      cleanupRetentionDays: 1,
       dbUri: DB_URI,
       loggingLevel: "fatal",
       tablesPrefix: `${randomUUID().slice(-4)}_`,
@@ -40,12 +40,12 @@ describe("cleanup", () => {
     ]);
     const [oldCompletedId, recentCompletedId, pendingId] = jobIds;
 
-    const oldDate = subtractMs(2 * 60 * 60 * 1000);
+    const twoDaysAgo = subtractMs(2 * 24 * 60 * 60 * 1000);
     const now = new Date();
 
     await queryDatabase.query(`UPDATE ${mysqlQueue.jobsTable()} SET status = 'completed', completedAt = ?, runningAt = ? WHERE id = ?`, [
-      oldDate,
-      oldDate,
+      twoDaysAgo,
+      twoDaysAgo,
       oldCompletedId,
     ]);
     await queryDatabase.query(`UPDATE ${mysqlQueue.jobsTable()} SET status = 'completed', completedAt = ?, runningAt = ? WHERE id = ?`, [
@@ -71,12 +71,15 @@ describe("cleanup", () => {
       { name: "failed-job", payload: {} },
     ]);
     const [pendingId, runningId, failedId] = jobIds;
-    const oldDate = subtractMs(2 * 60 * 60 * 1000);
+    const twoDaysAgo = subtractMs(2 * 24 * 60 * 60 * 1000);
 
-    await queryDatabase.query(`UPDATE ${mysqlQueue.jobsTable()} SET createdAt = ? WHERE id = ?`, [oldDate, pendingId]);
-    await queryDatabase.query(`UPDATE ${mysqlQueue.jobsTable()} SET status = 'running', runningAt = ? WHERE id = ?`, [oldDate, runningId]);
+    await queryDatabase.query(`UPDATE ${mysqlQueue.jobsTable()} SET createdAt = ? WHERE id = ?`, [twoDaysAgo, pendingId]);
+    await queryDatabase.query(`UPDATE ${mysqlQueue.jobsTable()} SET status = 'running', runningAt = ? WHERE id = ?`, [
+      twoDaysAgo,
+      runningId,
+    ]);
     await queryDatabase.query(`UPDATE ${mysqlQueue.jobsTable()} SET status = 'failed', failedAt = ?, completedAt = NULL WHERE id = ?`, [
-      oldDate,
+      twoDaysAgo,
       failedId,
     ]);
 
@@ -93,14 +96,14 @@ describe("cleanup", () => {
     const prefix = `${randomUUID().slice(-4)}_`;
     const db = QueryDatabase({ dbUri: DB_URI });
     const queueP1 = MysqlQueue({
-      cleanupRetentionMs: 1000,
+      cleanupRetentionDays: 1,
       dbUri: DB_URI,
       loggingLevel: "fatal",
       partitionKey: "p1",
       tablesPrefix: prefix,
     });
     const queueP2 = MysqlQueue({
-      cleanupRetentionMs: 1000,
+      cleanupRetentionDays: 1,
       dbUri: DB_URI,
       loggingLevel: "fatal",
       partitionKey: "p2",
@@ -114,17 +117,17 @@ describe("cleanup", () => {
     const { jobIds: ids2 } = await queueP2.enqueue("q2", [{ name: "job-p2", payload: {} }]);
     const jobIdP1 = ids1[0];
     const jobIdP2 = ids2[0];
-    const oldDate = subtractMs(2 * 60 * 60 * 1000);
+    const twoDaysAgo = subtractMs(2 * 24 * 60 * 60 * 1000);
 
     const jobsTable = queueP1.jobsTable();
     await db.query(`UPDATE ${jobsTable} SET status = 'completed', completedAt = ?, runningAt = ? WHERE id = ?`, [
-      oldDate,
-      oldDate,
+      twoDaysAgo,
+      twoDaysAgo,
       jobIdP1,
     ]);
     await db.query(`UPDATE ${jobsTable} SET status = 'completed', completedAt = ?, runningAt = ? WHERE id = ?`, [
-      oldDate,
-      oldDate,
+      twoDaysAgo,
+      twoDaysAgo,
       jobIdP2,
     ]);
 
@@ -156,12 +159,12 @@ describe("cleanup", () => {
       "q",
       Array.from({ length: 5 }, (_, i) => ({ name: `job-${i}`, payload: {} })),
     );
-    const oldDate = subtractMs(2 * 60 * 60 * 1000);
+    const twoDaysAgo = subtractMs(2 * 24 * 60 * 60 * 1000);
 
     for (const id of jobIds) {
       await queryDatabase.query(`UPDATE ${mysqlQueue.jobsTable()} SET status = 'completed', completedAt = ?, runningAt = ? WHERE id = ?`, [
-        oldDate,
-        oldDate,
+        twoDaysAgo,
+        twoDaysAgo,
         id,
       ]);
     }
@@ -176,27 +179,27 @@ describe("cleanup", () => {
     const prefix = `${randomUUID().slice(-4)}_`;
     const db = QueryDatabase({ dbUri: DB_URI });
     const instance = MysqlQueue({
-      cleanupRetentionMs: 1000,
+      cleanupRetentionDays: 1,
       dbUri: DB_URI,
       loggingLevel: "fatal",
       tablesPrefix: prefix,
     });
     await instance.globalInitialize();
 
-    await instance.upsertQueue("short-retention", { cleanupRetentionMs: 1000 });
-    await instance.upsertQueue("long-retention", { cleanupRetentionMs: 7 * 24 * 60 * 60 * 1000 });
+    await instance.upsertQueue("short-retention", { cleanupRetentionDays: 1 });
+    await instance.upsertQueue("long-retention", { cleanupRetentionDays: 30 });
     await instance.upsertQueue("default-retention");
 
     const { jobIds: shortIds } = await instance.enqueue("short-retention", [{ name: "j", payload: {} }]);
     const { jobIds: longIds } = await instance.enqueue("long-retention", [{ name: "j", payload: {} }]);
     const { jobIds: defaultIds } = await instance.enqueue("default-retention", [{ name: "j", payload: {} }]);
 
-    const twoHoursAgo = subtractMs(2 * 60 * 60 * 1000);
+    const twoDaysAgo = subtractMs(2 * 24 * 60 * 60 * 1000);
     const jobsTable = instance.jobsTable();
     for (const id of [...shortIds, ...longIds, ...defaultIds]) {
       await db.query(`UPDATE ${jobsTable} SET status = 'completed', completedAt = ?, runningAt = ? WHERE id = ?`, [
-        twoHoursAgo,
-        twoHoursAgo,
+        twoDaysAgo,
+        twoDaysAgo,
         id,
       ]);
     }
