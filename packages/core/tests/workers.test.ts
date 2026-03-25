@@ -186,6 +186,23 @@ describe("workers", () => {
       });
     });
 
+    it("should poll again immediately after processing jobs without waiting for pollingIntervalMs", async () => {
+      const queueName = "test_queue";
+      await mysqlQueue.upsertQueue(queueName);
+      // pollingBatchSize=2 forces two poll cycles to process 4 jobs
+      // pollingIntervalMs=5000 means if sleep is not skipped, second batch would take >5s
+      worker = await mysqlQueue.work(queueName, vitest.fn(), { callbackBatchSize: 2, pollingBatchSize: 2, pollingIntervalMs: 5000 });
+
+      await enqueueNJobs(mysqlQueue, queueName, 4);
+
+      const start = Date.now();
+      const promise = mysqlQueue.getJobExecutionPromise(queueName, 4);
+      void worker.start();
+      await promise;
+
+      expect(Date.now() - start).toBeLessThan(2000);
+    }, 10_000);
+
     it("should call onJobFailed when job process fails (and not on every attempt)", async () => {
       const error = new Error("Unexpected");
       const OnJobFailedMock = vitest.fn();
