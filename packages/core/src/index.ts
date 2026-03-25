@@ -43,7 +43,7 @@ export function MysqlQueue(_options: Options) {
   });
   const cleanupScheduler = createScheduler(cleanup.cleanup, logger, {
     intervalMs: options.cleanupIntervalHours * 3600 * 1000,
-    runOnStart: false,
+    runOnStart: true,
     taskName: "cleanup",
   });
   const leaderElection = createLeaderElection(logger, database, {
