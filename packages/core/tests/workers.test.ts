@@ -265,7 +265,7 @@ describe("workers", () => {
       expect(callOrder).toEqual(["onJobClaimed", "onJobClaimed", "onJobClaimed", "handler"]);
     }, 10_000);
 
-    it("should skip the handler and leave jobs running when onJobClaimed throws", async () => {
+    it("should catch and log errors from onJobClaimed without blocking job processing", async () => {
       const boom = new Error("onJobClaimed threw");
       const onJobClaimed = vitest.fn(() => {
         throw boom;
@@ -278,21 +278,18 @@ describe("workers", () => {
         pollingIntervalMs: 50,
       });
 
+      const promise = mysqlQueue.getJobExecutionPromise(queueName, 1);
       const {
         jobIds: [jobId],
       } = await mysqlQueue.enqueue(queueName, { name: "1", payload: {} });
       void worker.start();
-
-      await vi.waitUntil(
-        async () => (await mysqlQueue.getJobById(jobId))?.status === "running",
-        { interval: 50, timeout: 5000 },
-      );
+      await promise;
 
       expect(onJobClaimed).toHaveBeenCalled();
-      expect(WorkerHandlerMock.handle).not.toHaveBeenCalled();
+      expect(WorkerHandlerMock.handle).toHaveBeenCalled();
 
       const job = await mysqlQueue.getJobById(jobId);
-      expect(job).toMatchObject({ id: jobId, status: "running" });
+      expect(job).toMatchObject({ id: jobId, status: "completed" });
     }, 10_000);
   });
 
