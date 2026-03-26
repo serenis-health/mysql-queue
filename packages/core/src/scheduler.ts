@@ -1,3 +1,4 @@
+import { CronExpressionParser } from "cron-parser";
 import { errorToJson } from "./utils";
 import { Logger } from "./logger";
 
@@ -69,4 +70,70 @@ interface SchedulerOptions {
   taskName: string;
   intervalMs: number;
   runOnStart: boolean;
+}
+
+export function createCronScheduler(task: () => Promise<void>, logger: Logger, options: CronSchedulerOptions) {
+  const { cronExpression, taskName } = options;
+
+  let timeout: NodeJS.Timeout | null = null;
+  let nextRun: Date | null = null;
+  let running = false;
+  let epoch = 0;
+
+  function stop() {
+    if (timeout) clearTimeout(timeout);
+    timeout = null;
+    nextRun = null;
+    running = false;
+    epoch++;
+    logger.trace({ taskName }, "scheduler.stopped");
+  }
+
+  function getNextRun() {
+    return nextRun;
+  }
+
+  function getNextCronDate(): Date {
+    return CronExpressionParser.parse(cronExpression, { tz: "UTC" }).next().toDate();
+  }
+
+  async function runSafely(myEpoch: number) {
+    try {
+      logger.trace({ taskName }, "scheduler.runStarted");
+      await task();
+      logger.trace({ taskName }, "scheduler.runCompleted");
+    } catch (err) {
+      logger.error({ taskName, ...errorToJson(err as Error) }, "scheduler.runError");
+    } finally {
+      if (myEpoch === epoch) scheduleNext();
+    }
+  }
+
+  function scheduleNext() {
+    if (!running) return;
+    nextRun = getNextCronDate();
+    const delay = nextRun.getTime() - Date.now();
+    timeout = setTimeout(() => void runSafely(epoch), delay);
+  }
+
+  function start() {
+    if (running) {
+      logger.trace({ taskName }, "scheduler.alreadyRunning");
+      return;
+    }
+    running = true;
+    logger.debug({ cronExpression, taskName }, "scheduler.started");
+    scheduleNext();
+  }
+
+  return {
+    getNextRun,
+    start,
+    stop,
+  };
+}
+
+interface CronSchedulerOptions {
+  taskName: string;
+  cronExpression: string;
 }

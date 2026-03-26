@@ -17,8 +17,8 @@ describe("cleanup", () => {
   beforeEach(async () => {
     queryDatabase = QueryDatabase({ dbUri: DB_URI });
     mysqlQueue = MysqlQueue({
-      cleanupRetentionDays: 1,
       dbUri: DB_URI,
+      jobsRetentionDays: 1,
       loggingLevel: "fatal",
       tablesPrefix: `${randomUUID().slice(-4)}_`,
     });
@@ -96,15 +96,15 @@ describe("cleanup", () => {
     const prefix = `${randomUUID().slice(-4)}_`;
     const db = QueryDatabase({ dbUri: DB_URI });
     const queueP1 = MysqlQueue({
-      cleanupRetentionDays: 1,
       dbUri: DB_URI,
+      jobsRetentionDays: 1,
       loggingLevel: "fatal",
       partitionKey: "p1",
       tablesPrefix: prefix,
     });
     const queueP2 = MysqlQueue({
-      cleanupRetentionDays: 1,
       dbUri: DB_URI,
+      jobsRetentionDays: 1,
       loggingLevel: "fatal",
       partitionKey: "p2",
       tablesPrefix: prefix,
@@ -179,8 +179,8 @@ describe("cleanup", () => {
     const prefix = `${randomUUID().slice(-4)}_`;
     const db = QueryDatabase({ dbUri: DB_URI });
     const instance = MysqlQueue({
-      cleanupRetentionDays: 1,
       dbUri: DB_URI,
+      jobsRetentionDays: 1,
       loggingLevel: "fatal",
       tablesPrefix: prefix,
     });

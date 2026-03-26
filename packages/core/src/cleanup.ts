@@ -1,11 +1,8 @@
 import { Database } from "./database";
 import { Logger } from "./logger";
 
-const BATCH_SIZE = 1000;
-const MAX_ITERATIONS_PER_RUN = 50;
-
 export function createCleanup(database: Database, logger: Logger, options: CleanupOptions) {
-  const { retentionDays, partitionKey } = options;
+  const { retentionDays, partitionKey, batchSize, maxIterationsForRun } = options;
 
   return {
     async cleanup() {
@@ -14,10 +11,10 @@ export function createCleanup(database: Database, logger: Logger, options: Clean
       let deleted: number;
 
       do {
-        deleted = await database.deleteCompletedJobsOlderThan(partitionKey, retentionDays, BATCH_SIZE);
+        deleted = await database.deleteCompletedJobsOlderThan(partitionKey, retentionDays, batchSize);
         totalDeleted += deleted;
         iterations += 1;
-      } while (iterations < MAX_ITERATIONS_PER_RUN && deleted >= BATCH_SIZE);
+      } while (iterations < maxIterationsForRun && deleted >= batchSize);
 
       if (totalDeleted > 0) {
         logger.info({ batchCount: iterations, totalDeleted }, "cleanup.completedJobsDeleted");
@@ -31,4 +28,6 @@ export function createCleanup(database: Database, logger: Logger, options: Clean
 interface CleanupOptions {
   retentionDays: number;
   partitionKey: string;
+  batchSize: number;
+  maxIterationsForRun: number;
 }
