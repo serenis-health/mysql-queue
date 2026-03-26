@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { afterEach, beforeEach, describe, expect, it, vi, vitest } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vitest } from "vitest";
 import { CallbackContext, MysqlQueue } from "../src";
 import { createPool, RowDataPacket } from "mysql2/promise";
 import { approxEqual } from "./utils/approxEqual";
@@ -257,7 +257,7 @@ describe("workers", () => {
       await promise;
 
       expect(onJobClaimed).toHaveBeenCalledTimes(3);
-      const claimedIds = onJobClaimed.mock.calls.map((entry: [Job]) => entry[0].id).sort();
+      const claimedIds = onJobClaimed.mock.calls.map((entry) => entry[0].id).sort();
       expect(claimedIds).toEqual([...jobIds].sort());
       expect(WorkerHandlerMock.handle).toHaveBeenCalledTimes(1);
       const [[handlerJobs]] = WorkerHandlerMock.handle.mock.calls as unknown as [[Job[]]];
