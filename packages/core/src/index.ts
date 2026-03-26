@@ -1,3 +1,4 @@
+import { createCronScheduler, createScheduler } from "./scheduler";
 import {
   EnqueueParams,
   JobForInsert,
@@ -13,7 +14,6 @@ import { createCleanup } from "./cleanup";
 import { createLeaderElection } from "./leaderElection";
 import { createPeriodic } from "./periodic";
 import { createRescuer } from "./rescuer";
-import { createScheduler } from "./scheduler";
 import { Database } from "./database";
 import { Logger } from "./logger";
 import { randomUUID } from "node:crypto";
@@ -38,12 +38,13 @@ export function MysqlQueue(_options: Options) {
   });
   const periodic = createPeriodic(logger, enqueue, database);
   const cleanup = createCleanup(database, logger, {
+    batchSize: options.cleanupBatchSize,
+    maxIterationsForRun: options.cleanupMaxIterationsForRun,
     partitionKey: options.partitionKey,
-    retentionDays: options.cleanupRetentionDays,
+    retentionDays: options.jobsRetentionDays,
   });
-  const cleanupScheduler = createScheduler(cleanup.cleanup, logger, {
-    intervalMs: options.cleanupIntervalHours * 3600 * 1000,
-    runOnStart: true,
+  const cleanupScheduler = createCronScheduler(cleanup.cleanup, logger, {
+    cronExpression: options.cleanupCronExpression,
     taskName: "cleanup",
   });
   const leaderElection = createLeaderElection(logger, database, {
@@ -193,8 +194,10 @@ export { CallbackContext, Session, Job, PeriodicJob, PurgePartitionParams } from
 function applyOptionsDefault(options: Options) {
   return {
     ...options,
-    cleanupIntervalHours: options.cleanupIntervalHours ?? 24,
-    cleanupRetentionDays: options.cleanupRetentionDays ?? 30,
+    cleanupBatchSize: options.cleanupBatchSize ?? 1000,
+    cleanupCronExpression: options.cleanupCronExpression ?? "0 0 * * *", // every day at 00:00 utc
+    cleanupMaxIterationsForRun: options.cleanupMaxIterationsForRun ?? 50,
+    jobsRetentionDays: options.jobsRetentionDays ?? 30,
     leaderElectionHeartbeatMs: options.leaderElectionHeartbeatMs ?? 10_000, //10s
     leaderElectionLeaseDurationMs: options.leaderElectionLeaseDurationMs ?? 30_000, //30s
     partitionKey: options.partitionKey ?? "default",

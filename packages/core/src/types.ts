@@ -13,8 +13,10 @@ export interface Options {
   rescuerRunOnStart?: boolean;
   leaderElectionHeartbeatMs?: number;
   leaderElectionLeaseDurationMs?: number;
-  cleanupRetentionDays?: number;
-  cleanupIntervalHours?: number;
+  jobsRetentionDays?: number;
+  cleanupCronExpression?: string;
+  cleanupBatchSize?: number;
+  cleanupMaxIterationsForRun?: number;
 }
 
 export interface Queue {
