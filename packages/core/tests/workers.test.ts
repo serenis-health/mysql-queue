@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { afterEach, beforeEach, describe, expect, it, vitest } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, vitest } from "vitest";
 import { CallbackContext, MysqlQueue } from "../src";
 import { createPool, RowDataPacket } from "mysql2/promise";
 import { approxEqual } from "./utils/approxEqual";
@@ -226,6 +226,74 @@ describe("workers", () => {
       expect(OnJobFailedMock).toHaveBeenCalledTimes(1);
       expect(OnJobFailedMock).toHaveBeenCalledWith(error, { id: jobId, queueName });
     });
+
+    it("should call onJobClaimed once per claimed job before the handler runs", async () => {
+      const queueName = "test_on_job_claimed";
+      const callOrder: string[] = [];
+      const onJobClaimed = vitest.fn((job: { id: string; queueName: string }) => {
+        callOrder.push("onJobClaimed");
+        expect(job.queueName).toBe(queueName);
+      });
+      const WorkerHandlerMock = {
+        handle: vitest.fn(() => {
+          callOrder.push("handler");
+        }),
+      };
+      await mysqlQueue.upsertQueue(queueName);
+      worker = await mysqlQueue.work(queueName, WorkerHandlerMock.handle, {
+        callbackBatchSize: 3,
+        onJobClaimed,
+        pollingBatchSize: 3,
+        pollingIntervalMs: 100,
+      });
+
+      const promise = mysqlQueue.getJobExecutionPromise(queueName, 3);
+      const { jobIds } = await mysqlQueue.enqueue(queueName, [
+        { name: "a", payload: { x: 1 } },
+        { name: "b", payload: { x: 2 } },
+        { name: "c", payload: { x: 3 } },
+      ]);
+      void worker.start();
+      await promise;
+
+      expect(onJobClaimed).toHaveBeenCalledTimes(3);
+      const claimedIds = onJobClaimed.mock.calls.map((entry: [Job]) => entry[0].id).sort();
+      expect(claimedIds).toEqual([...jobIds].sort());
+      expect(WorkerHandlerMock.handle).toHaveBeenCalledTimes(1);
+      const [[handlerJobs]] = WorkerHandlerMock.handle.mock.calls as unknown as [[Job[]]];
+      expect(handlerJobs.map((j) => j.id).sort()).toEqual([...jobIds].sort());
+      expect(callOrder).toEqual(["onJobClaimed", "onJobClaimed", "onJobClaimed", "handler"]);
+    }, 10_000);
+
+    it("should skip the handler and leave jobs running when onJobClaimed throws", async () => {
+      const boom = new Error("onJobClaimed threw");
+      const onJobClaimed = vitest.fn(() => {
+        throw boom;
+      });
+      const queueName = "test_on_job_claimed_throw";
+      const WorkerHandlerMock = { handle: vitest.fn() };
+      await mysqlQueue.upsertQueue(queueName);
+      worker = await mysqlQueue.work(queueName, WorkerHandlerMock.handle, {
+        onJobClaimed,
+        pollingIntervalMs: 50,
+      });
+
+      const {
+        jobIds: [jobId],
+      } = await mysqlQueue.enqueue(queueName, { name: "1", payload: {} });
+      void worker.start();
+
+      await vi.waitUntil(
+        async () => (await mysqlQueue.getJobById(jobId))?.status === "running",
+        { interval: 50, timeout: 5000 },
+      );
+
+      expect(onJobClaimed).toHaveBeenCalled();
+      expect(WorkerHandlerMock.handle).not.toHaveBeenCalled();
+
+      const job = await mysqlQueue.getJobById(jobId);
+      expect(job).toMatchObject({ id: jobId, status: "running" });
+    }, 10_000);
   });
 
   describe("transactional job completion", () => {

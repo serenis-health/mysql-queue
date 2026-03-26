@@ -22,6 +22,8 @@ export function JobProcessor(
       const jobs = await claimJobsForProcessing();
       if (!jobs) return false;
 
+      jobs.forEach((job) => options.onJobClaimed?.({ ...job, queueName: queue.name }));
+
       const result = await executeJobsConcurrently(jobs, options.callbackBatchSize, workerAbortSignal, executeCallbackWithTimeout);
 
       await persistResults(result.successful.ids, result.failed);
@@ -118,9 +120,10 @@ export function connectionToSession(connection: PoolConnection): Session {
 }
 
 export type JobProcessorOptions = {
-  pollingIntervalMs: number;
   callbackBatchSize: number;
+  onJobClaimed?: (job: JobWithQueueName) => void;
   onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void;
   onJobProcessed?: (job: JobWithQueueName) => void;
   pollingBatchSize: number;
+  pollingIntervalMs: number;
 };
