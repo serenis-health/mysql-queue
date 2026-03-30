@@ -162,6 +162,12 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       number: 12,
       up: `ALTER TABLE ${queuesTable()} ADD COLUMN cleanupRetentionDays INT UNSIGNED NULL`,
     },
+    {
+      down: `ALTER TABLE ${queuesTable()} RENAME COLUMN jobsRetentionDays TO cleanupRetentionDays`,
+      name: "rename-queue-cleanup-retention-to-jobs-retention-days",
+      number: 13,
+      up: `ALTER TABLE ${queuesTable()} RENAME COLUMN cleanupRetentionDays TO jobsRetentionDays`,
+    },
   ];
 
   async function runWithPoolConnection<T>(cb: (connection: PoolConnection) => Promise<T>) {
@@ -241,7 +247,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     async createQueue(params: DbCreateQueueParams) {
       await runWithPoolConnection((connection) => {
         return connection.query(
-          `INSERT INTO ${queuesTable()} (id, name, maxRetries, minDelayMs, backoffMultiplier, maxDurationMs, partitionKey, paused, cleanupRetentionDays) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO ${queuesTable()} (id, name, maxRetries, minDelayMs, backoffMultiplier, maxDurationMs, partitionKey, paused, jobsRetentionDays) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             params.id,
             params.name,
@@ -251,7 +257,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
             params.maxDurationMs,
             params.partitionKey,
             params.paused,
-            params.cleanupRetentionDays,
+            params.jobsRetentionDays,
           ],
         );
       });
@@ -266,7 +272,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
                WHERE q.partitionKey = ?
                  AND j2.status = 'completed'
                  AND j2.completedAt IS NOT NULL
-                 AND j2.completedAt < DATE_SUB(NOW(3), INTERVAL COALESCE(q.cleanupRetentionDays, ?) DAY)
+                 AND j2.completedAt < DATE_SUB(NOW(3), INTERVAL COALESCE(q.jobsRetentionDays, ?) DAY)
                ORDER BY j2.completedAt ASC, j2.id ASC
                LIMIT ?
              ) AS j
@@ -546,7 +552,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     async updateQueue(params: DbUpdateQueueParams) {
       await runWithPoolConnection((connection) => {
         return connection.query(
-          `UPDATE ${queuesTable()} SET maxRetries = ?, minDelayMs = ?, backoffMultiplier = ?, maxDurationMs = ?, partitionKey = ?, paused = ?, cleanupRetentionDays = ? WHERE id = ?`,
+          `UPDATE ${queuesTable()} SET maxRetries = ?, minDelayMs = ?, backoffMultiplier = ?, maxDurationMs = ?, partitionKey = ?, paused = ?, jobsRetentionDays = ? WHERE id = ?`,
           [
             params.maxRetries,
             params.minDelayMs,
@@ -554,7 +560,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
             params.maxDurationMs,
             params.partitionKey || null,
             params.paused,
-            params.cleanupRetentionDays,
+            params.jobsRetentionDays,
             params.id,
           ],
         );
