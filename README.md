@@ -97,4 +97,14 @@ await mysqlQueue.dispose(); // gracefully shutdown database and workers
 await mysqlQueue.destroy(); // remove all queues and jobs and drop the database
 ```
 
+### Worker options (`work`)
+
+The third argument to `work()` is optional. Besides tuning polling and batch sizes (`pollingIntervalMs`, `pollingBatchSize`, `callbackBatchSize`), you can attach hooks:
+
+- **`onJobClaimed`** — Called once per job after it has been **claimed** for processing (same shape as `onJobProcessed`: a `JobWithQueueName`), **before** your handler runs. Errors thrown from this hook are caught and logged without blocking job processing.
+
+- **`onJobProcessed`** — Called once per job after it has been successfully processed. Errors thrown from this hook are caught and logged.
+
+- **`onJobFailed`** — Called when a job has exhausted retries and is considered permanently failed (receives the error and `{ id, queueName }`). Errors thrown from this hook are caught and logged.
+
 _Created with inspiration from [pg-boss](https://github.com/timgit/pg-boss), thanks Tim!_

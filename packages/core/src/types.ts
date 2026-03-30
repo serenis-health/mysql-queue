@@ -112,8 +112,9 @@ export interface PeriodicJob {
 }
 
 export type WorkOptions = {
-  pollingIntervalMs?: number;
   callbackBatchSize?: number;
+  onJobClaimed?: (job: JobWithQueueName) => void;
   onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void;
   pollingBatchSize?: number;
+  pollingIntervalMs?: number;
 };

@@ -22,12 +22,26 @@ export function JobProcessor(
       const jobs = await claimJobsForProcessing();
       if (!jobs) return false;
 
+      jobs.forEach((job) => {
+        try {
+          options.onJobClaimed?.({ ...job, queueName: queue.name });
+        } catch (error) {
+          logger.error({ error: errorToJson(error as Error), jobId: job.id }, `jobProcessor.onJobClaimed.error`);
+        }
+      });
+
       const result = await executeJobsConcurrently(jobs, options.callbackBatchSize, workerAbortSignal, executeCallbackWithTimeout);
 
       await persistResults(result.successful.ids, result.failed);
 
       logger.debug({ elapsedSeconds: (Date.now() - start) / 1000, jobCount: jobs.length }, `jobProcessor.processed`);
-      jobs.forEach((job) => options.onJobProcessed?.({ ...job, queueName: queue.name }));
+      jobs.forEach((job) => {
+        try {
+          options.onJobProcessed?.({ ...job, queueName: queue.name });
+        } catch (error) {
+          logger.error({ error: errorToJson(error as Error), jobId: job.id }, `jobProcessor.onJobProcessed.error`);
+        }
+      });
       return true;
     },
   };
@@ -96,7 +110,13 @@ export function JobProcessor(
             logger.error({ error: errorToJson(error), jobIds: ids }, `jobProcessor.processBatch.jobsChunkMarkedAsFailed`);
             chunkJobs
               .filter((j) => j.attempts + 1 >= queue.maxRetries)
-              .forEach((j) => options.onJobFailed?.(error, { id: j.id, queueName: queue.name }));
+              .forEach((j) => {
+                try {
+                  options.onJobFailed?.(error, { id: j.id, queueName: queue.name });
+                } catch (hookError) {
+                  logger.error({ error: errorToJson(hookError as Error), jobId: j.id }, `jobProcessor.onJobFailed.error`);
+                }
+              });
           }
         }
       }, connection);
@@ -118,9 +138,10 @@ export function connectionToSession(connection: PoolConnection): Session {
 }
 
 export type JobProcessorOptions = {
-  pollingIntervalMs: number;
   callbackBatchSize: number;
+  onJobClaimed?: (job: JobWithQueueName) => void;
   onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void;
   onJobProcessed?: (job: JobWithQueueName) => void;
   pollingBatchSize: number;
+  pollingIntervalMs: number;
 };
