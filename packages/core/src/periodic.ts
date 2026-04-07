@@ -130,7 +130,19 @@ export function createPeriodic(logger: Logger, enqueue: MysqlQueue["enqueue"], d
       logger.warn({ name: job.name, nextRunAt: job.nextRunAt.toISOString() }, "periodic.jobOverdue");
       executeJobAndScheduleNext();
     } else {
-      job.timer = setTimeout(executeJobAndScheduleNext, delay);
+      scheduleSafe();
+    }
+
+    function scheduleSafe(): void {
+      if (!isRunning || !jobs.has(job.name)) return;
+      const remaining = job.nextRunAt.getTime() - Date.now();
+      if (remaining <= 0) {
+        executeJobAndScheduleNext();
+        return;
+      }
+      // Node.js setTimeout uses a signed 32-bit integer for the delay (~24.8 days max).
+      // For longer delays, we reschedule in chunks to avoid immediate fire.
+      job.timer = setTimeout(scheduleSafe, Math.min(remaining, MAX_TIMEOUT_MS));
     }
 
     function executeJobAndScheduleNext() {
@@ -286,3 +298,5 @@ interface PeriodicJobInternal extends PeriodicJob {
   nextRunAt: Date;
   timer?: NodeJS.Timeout;
 }
+
+const MAX_TIMEOUT_MS = 2_147_483_647;
