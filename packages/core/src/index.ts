@@ -128,7 +128,7 @@ export function MysqlQueue(_options: Options) {
       const existingQueue = await database.getQueueByName(name, options.partitionKey);
       const baseQueueParams: Omit<Queue, "id"> = {
         backoffMultiplier: params.backoffMultiplier && params.backoffMultiplier > 0 ? params.backoffMultiplier : 2,
-        cleanupRetentionDays: params.cleanupRetentionDays ?? null,
+        jobsRetentionDays: params.jobsRetentionDays ?? null,
         maxDurationMs: params.maxDurationMs || 5000,
         maxRetries: params.maxRetries || 3,
         minDelayMs: params.minDelayMs || 1000,

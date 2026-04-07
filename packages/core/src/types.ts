@@ -28,7 +28,7 @@ export interface Queue {
   maxDurationMs: number;
   partitionKey: string;
   paused: boolean;
-  cleanupRetentionDays: number | null;
+  jobsRetentionDays: number | null;
 }
 
 export interface Job {
@@ -66,7 +66,7 @@ export interface UpsertQueueParams {
   minDelayMs?: number;
   backoffMultiplier?: number | null;
   maxDurationMs?: number;
-  cleanupRetentionDays?: number | null;
+  jobsRetentionDays?: number | null;
 }
 
 export interface RetrieveQueueParams {

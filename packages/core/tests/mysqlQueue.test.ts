@@ -81,6 +81,11 @@ describe("mysqlQueue", () => {
           id: 12,
           name: "add-queue-cleanup-retention",
         },
+        {
+          applied_at: expect.any(Date),
+          id: 13,
+          name: "rename-queue-cleanup-retention-to-jobs-retention-days",
+        },
       ]);
     });
 
@@ -132,8 +137,8 @@ describe("mysqlQueue", () => {
       expect(isValidUUID(row.id)).toBeTruthy();
       expect(row).toEqual({
         backoffMultiplier: 2,
-        cleanupRetentionDays: null,
         id: expect.any(String),
+        jobsRetentionDays: null,
         maxDurationMs: 5000,
         maxRetries: 3,
         minDelayMs: 1000,
@@ -158,8 +163,8 @@ describe("mysqlQueue", () => {
 
       expect(row).toEqual({
         backoffMultiplier: 3,
-        cleanupRetentionDays: null,
         id: expect.any(String),
+        jobsRetentionDays: null,
         maxDurationMs: 10000,
         maxRetries: 5,
         minDelayMs: 2000,

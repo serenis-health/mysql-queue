@@ -186,8 +186,8 @@ describe("cleanup", () => {
     });
     await instance.globalInitialize();
 
-    await instance.upsertQueue("short-retention", { cleanupRetentionDays: 1 });
-    await instance.upsertQueue("long-retention", { cleanupRetentionDays: 30 });
+    await instance.upsertQueue("short-retention", { jobsRetentionDays: 1 });
+    await instance.upsertQueue("long-retention", { jobsRetentionDays: 30 });
     await instance.upsertQueue("default-retention");
 
     const { jobIds: shortIds } = await instance.enqueue("short-retention", [{ name: "j", payload: {} }]);
