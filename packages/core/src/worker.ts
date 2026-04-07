@@ -14,10 +14,11 @@ export function WorkersFactory(logger: Logger, database: Database) {
       callback: WorkerCallback,
       queue: Queue,
       options: {
-        pollingIntervalMs: number;
         callbackBatchSize: number;
+        onJobClaimed?: (job: JobWithQueueName) => void | Promise<void>;
+        onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void | Promise<void>;
         pollingBatchSize: number;
-        onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void;
+        pollingIntervalMs: number;
       },
     ) {
       const worker = Worker(database, callback, queue, logger, {

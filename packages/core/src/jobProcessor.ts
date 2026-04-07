@@ -22,12 +22,32 @@ export function JobProcessor(
       const jobs = await claimJobsForProcessing();
       if (!jobs) return false;
 
+      await Promise.all(
+        jobs.map(async (job) => {
+          try {
+            await options.onJobClaimed?.({ ...job, queueName: queue.name });
+          } catch (error) {
+            logger.error({ error: errorToJson(error as Error), jobId: job.id }, `jobProcessor.onJobClaimed.error`);
+          }
+        }),
+      );
+
       const result = await executeJobsConcurrently(jobs, options.callbackBatchSize, workerAbortSignal, executeCallbackWithTimeout);
 
       await persistResults(result.successful.ids, result.failed);
 
       logger.debug({ elapsedSeconds: (Date.now() - start) / 1000, jobCount: jobs.length }, `jobProcessor.processed`);
-      jobs.forEach((job) => options.onJobProcessed?.({ ...job, queueName: queue.name }));
+
+      await Promise.all(
+        jobs.map(async (job) => {
+          try {
+            await options.onJobProcessed?.({ ...job, queueName: queue.name });
+          } catch (error) {
+            logger.error({ error: errorToJson(error as Error), jobId: job.id }, `jobProcessor.onJobProcessed.error`);
+          }
+        }),
+      );
+
       return true;
     },
   };
@@ -83,6 +103,8 @@ export function JobProcessor(
   }
 
   async function persistResults(successfulJobIds: string[], failedJobsData: Array<{ ids: string[]; error: Error; jobs: Job[] }>) {
+    const terminalJobsToNotify: Array<{ error: Error; job: Job }> = [];
+
     await database.runWithPoolConnection(async (connection) => {
       await database.runTransaction(async (trx) => {
         if (successfulJobIds.length > 0) {
@@ -94,13 +116,25 @@ export function JobProcessor(
           for (const { error, ids, jobs: chunkJobs } of failedJobsData) {
             await database.failJobs(trx, ids, queue.maxRetries, queue.minDelayMs, queue.backoffMultiplier, errorToJson(error));
             logger.error({ error: errorToJson(error), jobIds: ids }, `jobProcessor.processBatch.jobsChunkMarkedAsFailed`);
-            chunkJobs
-              .filter((j) => j.attempts + 1 >= queue.maxRetries)
-              .forEach((j) => options.onJobFailed?.(error, { id: j.id, queueName: queue.name }));
+            const terminalJobs = chunkJobs.filter((j) => j.attempts + 1 >= queue.maxRetries);
+            terminalJobs.forEach((j) => {
+              terminalJobsToNotify.push({ error, job: j });
+            });
           }
         }
       }, connection);
     });
+
+    // Call onJobFailed hooks after transaction is closed
+    await Promise.all(
+      terminalJobsToNotify.map(async ({ error, job }) => {
+        try {
+          await options.onJobFailed?.(error, { id: job.id, queueName: queue.name });
+        } catch (hookError) {
+          logger.error({ error: errorToJson(hookError as Error), jobId: job.id }, `jobProcessor.onJobFailed.error`);
+        }
+      }),
+    );
   }
 }
 
@@ -118,9 +152,10 @@ export function connectionToSession(connection: PoolConnection): Session {
 }
 
 export type JobProcessorOptions = {
-  pollingIntervalMs: number;
   callbackBatchSize: number;
-  onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void;
-  onJobProcessed?: (job: JobWithQueueName) => void;
+  onJobClaimed?: (job: JobWithQueueName) => void | Promise<void>;
+  onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void | Promise<void>;
+  onJobProcessed?: (job: JobWithQueueName) => void | Promise<void>;
   pollingBatchSize: number;
+  pollingIntervalMs: number;
 };
