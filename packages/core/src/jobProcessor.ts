@@ -103,6 +103,8 @@ export function JobProcessor(
   }
 
   async function persistResults(successfulJobIds: string[], failedJobsData: Array<{ ids: string[]; error: Error; jobs: Job[] }>) {
+    const terminalJobsToNotify: Array<{ error: Error; job: Job }> = [];
+
     await database.runWithPoolConnection(async (connection) => {
       await database.runTransaction(async (trx) => {
         if (successfulJobIds.length > 0) {
@@ -116,16 +118,23 @@ export function JobProcessor(
             logger.error({ error: errorToJson(error), jobIds: ids }, `jobProcessor.processBatch.jobsChunkMarkedAsFailed`);
             const terminalJobs = chunkJobs.filter((j) => j.attempts + 1 >= queue.maxRetries);
             terminalJobs.forEach((j) => {
-              try {
-                options.onJobFailed?.(error, { id: j.id, queueName: queue.name });
-              } catch (hookError) {
-                logger.error({ error: errorToJson(hookError as Error), jobId: j.id }, `jobProcessor.onJobFailed.error`);
-              }
+              terminalJobsToNotify.push({ error, job: j });
             });
           }
         }
       }, connection);
     });
+
+    // Call onJobFailed hooks after transaction is closed
+    await Promise.all(
+      terminalJobsToNotify.map(async ({ error, job }) => {
+        try {
+          await options.onJobFailed?.(error, { id: job.id, queueName: queue.name });
+        } catch (hookError) {
+          logger.error({ error: errorToJson(hookError as Error), jobId: job.id }, `jobProcessor.onJobFailed.error`);
+        }
+      }),
+    );
   }
 }
 
@@ -145,7 +154,7 @@ export function connectionToSession(connection: PoolConnection): Session {
 export type JobProcessorOptions = {
   callbackBatchSize: number;
   onJobClaimed?: (job: JobWithQueueName) => void | Promise<void>;
-  onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void;
+  onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void | Promise<void>;
   onJobProcessed?: (job: JobWithQueueName) => void | Promise<void>;
   pollingBatchSize: number;
   pollingIntervalMs: number;

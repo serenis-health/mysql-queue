@@ -105,6 +105,6 @@ The third argument to `work()` is optional. Besides tuning polling and batch siz
 
 - **`onJobProcessed`** — Called once per job after it has been successfully processed. Supports async functions. Errors thrown from this hook are caught and logged.
 
-- **`onJobFailed`** — Called when a job has exhausted retries and is considered permanently failed (receives the error and `{ id, queueName }`). **Must be synchronous** (does not support async functions) because it runs inside a database transaction. Errors thrown from this hook are caught and logged.
+- **`onJobFailed`** — Called when a job has exhausted retries and is considered permanently failed (receives the error and `{ id, queueName }`). Supports async functions. The hooks are called **after** the database transaction closes to avoid holding connections. Errors thrown from this hook are caught and logged.
 
 _Created with inspiration from [pg-boss](https://github.com/timgit/pg-boss), thanks Tim!_
