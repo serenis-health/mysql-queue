@@ -265,6 +265,36 @@ describe("workers", () => {
       expect(callOrder).toEqual(["onJobClaimed", "onJobClaimed", "onJobClaimed", "handler"]);
     }, 10_000);
 
+    it("should await async onJobClaimed before the handler runs", async () => {
+      const queueName = "test_on_job_claimed_async";
+      let handlerRan = false;
+      const onJobClaimed = vitest.fn(async () => {
+        await new Promise((r) => setTimeout(r, 50));
+        expect(handlerRan).toBe(false);
+      });
+      const WorkerHandlerMock = {
+        handle: vitest.fn(() => {
+          handlerRan = true;
+        }),
+      };
+      await mysqlQueue.upsertQueue(queueName);
+      worker = await mysqlQueue.work(queueName, WorkerHandlerMock.handle, {
+        callbackBatchSize: 1,
+        onJobClaimed,
+        pollingBatchSize: 1,
+        pollingIntervalMs: 100,
+      });
+
+      const promise = mysqlQueue.getJobExecutionPromise(queueName, 1);
+      await mysqlQueue.enqueue(queueName, { name: "a", payload: { x: 1 } });
+      void worker.start();
+      await promise;
+
+      expect(onJobClaimed).toHaveBeenCalledTimes(1);
+      expect(WorkerHandlerMock.handle).toHaveBeenCalledTimes(1);
+      expect(handlerRan).toBe(true);
+    }, 10_000);
+
     it("should catch and log errors from onJobClaimed without blocking job processing", async () => {
       const boom = new Error("onJobClaimed threw");
       const onJobClaimed = vitest.fn(() => {

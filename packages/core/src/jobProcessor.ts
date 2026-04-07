@@ -22,26 +22,30 @@ export function JobProcessor(
       const jobs = await claimJobsForProcessing();
       if (!jobs) return false;
 
-      jobs.forEach(async (job) => {
+      await Promise.all(jobs.map(async (job) => {
         try {
           await options.onJobClaimed?.({ ...job, queueName: queue.name });
         } catch (error) {
           logger.error({ error: errorToJson(error as Error), jobId: job.id }, `jobProcessor.onJobClaimed.error`);
         }
-      });
+      }));
 
       const result = await executeJobsConcurrently(jobs, options.callbackBatchSize, workerAbortSignal, executeCallbackWithTimeout);
 
       await persistResults(result.successful.ids, result.failed);
 
       logger.debug({ elapsedSeconds: (Date.now() - start) / 1000, jobCount: jobs.length }, `jobProcessor.processed`);
-      jobs.forEach(async (job) => {
-        try {
-          await options.onJobProcessed?.({ ...job, queueName: queue.name });
-        } catch (error) {
-          logger.error({ error: errorToJson(error as Error), jobId: job.id }, `jobProcessor.onJobProcessed.error`);
-        }
-      });
+      
+      await Promise.all(
+        jobs.map(async (job) => {
+          try {
+            await options.onJobProcessed?.({ ...job, queueName: queue.name });
+          } catch (error) {
+            logger.error({ error: errorToJson(error as Error), jobId: job.id }, `jobProcessor.onJobProcessed.error`);
+          }
+        }),
+      );
+
       return true;
     },
   };
@@ -108,15 +112,16 @@ export function JobProcessor(
           for (const { error, ids, jobs: chunkJobs } of failedJobsData) {
             await database.failJobs(trx, ids, queue.maxRetries, queue.minDelayMs, queue.backoffMultiplier, errorToJson(error));
             logger.error({ error: errorToJson(error), jobIds: ids }, `jobProcessor.processBatch.jobsChunkMarkedAsFailed`);
-            chunkJobs
-              .filter((j) => j.attempts + 1 >= queue.maxRetries)
-              .forEach(async (j) => {
+            const terminalJobs = chunkJobs.filter((j) => j.attempts + 1 >= queue.maxRetries);
+            await Promise.all(
+              terminalJobs.map(async (j) => {
                 try {
                   await options.onJobFailed?.(error, { id: j.id, queueName: queue.name });
                 } catch (hookError) {
                   logger.error({ error: errorToJson(hookError as Error), jobId: j.id }, `jobProcessor.onJobFailed.error`);
                 }
-              });
+              }),
+            );
           }
         }
       }, connection);
@@ -139,9 +144,9 @@ export function connectionToSession(connection: PoolConnection): Session {
 
 export type JobProcessorOptions = {
   callbackBatchSize: number;
-  onJobClaimed?: (job: JobWithQueueName) => void;
-  onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void;
-  onJobProcessed?: (job: JobWithQueueName) => void;
+  onJobClaimed?: (job: JobWithQueueName) => void | Promise<void>;
+  onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void | Promise<void>;
+  onJobProcessed?: (job: JobWithQueueName) => void | Promise<void>;
   pollingBatchSize: number;
   pollingIntervalMs: number;
 };

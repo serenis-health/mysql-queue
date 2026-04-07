@@ -15,8 +15,8 @@ export function WorkersFactory(logger: Logger, database: Database) {
       queue: Queue,
       options: {
         callbackBatchSize: number;
-        onJobClaimed?: (job: JobWithQueueName) => void;
-        onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void;
+        onJobClaimed?: (job: JobWithQueueName) => void | Promise<void>;
+        onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void | Promise<void>;
         pollingBatchSize: number;
         pollingIntervalMs: number;
       },
