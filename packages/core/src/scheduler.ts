@@ -112,8 +112,20 @@ export function createCronScheduler(task: () => Promise<void>, logger: Logger, o
   function scheduleNext() {
     if (!running) return;
     nextRun = getNextCronDate();
-    const delay = nextRun.getTime() - Date.now();
-    timeout = setTimeout(() => void runSafely(epoch), delay);
+    scheduleSafe(epoch);
+  }
+
+  function scheduleSafe(myEpoch: number) {
+    if (!running || myEpoch !== epoch) return;
+    const delay = nextRun!.getTime() - Date.now();
+    if (delay <= 0) {
+      void runSafely(myEpoch);
+      return;
+    }
+    // Node.js setTimeout uses a signed 32-bit integer for the delay (~24.8 days max).
+    // For longer delays, we reschedule in chunks to avoid immediate fire.
+    const safeDelay = Math.min(delay, MAX_TIMEOUT_MS);
+    timeout = setTimeout(() => scheduleSafe(myEpoch), safeDelay);
   }
 
   function start() {
@@ -137,3 +149,5 @@ interface CronSchedulerOptions {
   taskName: string;
   cronExpression: string;
 }
+
+const MAX_TIMEOUT_MS = 2_147_483_647;
