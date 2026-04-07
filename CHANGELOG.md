@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.11.1](https://github.com/serenis-health/mysql-queue/compare/0.11.0...0.11.1) (2026-04-07)
+
+### Bug Fixes
+
+* **core:** safe setTimeout chunking for cron delays beyond 24.8 days ([06a65e3](https://github.com/serenis-health/mysql-queue/commit/06a65e3b5bab4975c91f0363373d3a4d6da98671))
+
 # [0.11.0](https://github.com/serenis-health/mysql-queue/compare/0.10.0...0.11.0) (2026-03-26)
 
 ### Features
