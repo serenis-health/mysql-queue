@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [0.12.0](https://github.com/serenis-health/mysql-queue/compare/0.11.1...0.12.0) (2026-04-07)
+
+### Features
+
+* **worker:** support onJobClaimed hook ([#90](https://github.com/serenis-health/mysql-queue/issues/90)) ([a3ea652](https://github.com/serenis-health/mysql-queue/commit/a3ea652ce998fb3abbbffb7a0e39ec4b16ee4c31))
+
 ## [0.11.1](https://github.com/serenis-health/mysql-queue/compare/0.11.0...0.11.1) (2026-04-07)
 
 ### Bug Fixes
