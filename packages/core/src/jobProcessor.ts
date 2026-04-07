@@ -22,20 +22,22 @@ export function JobProcessor(
       const jobs = await claimJobsForProcessing();
       if (!jobs) return false;
 
-      await Promise.all(jobs.map(async (job) => {
-        try {
-          await options.onJobClaimed?.({ ...job, queueName: queue.name });
-        } catch (error) {
-          logger.error({ error: errorToJson(error as Error), jobId: job.id }, `jobProcessor.onJobClaimed.error`);
-        }
-      }));
+      await Promise.all(
+        jobs.map(async (job) => {
+          try {
+            await options.onJobClaimed?.({ ...job, queueName: queue.name });
+          } catch (error) {
+            logger.error({ error: errorToJson(error as Error), jobId: job.id }, `jobProcessor.onJobClaimed.error`);
+          }
+        }),
+      );
 
       const result = await executeJobsConcurrently(jobs, options.callbackBatchSize, workerAbortSignal, executeCallbackWithTimeout);
 
       await persistResults(result.successful.ids, result.failed);
 
       logger.debug({ elapsedSeconds: (Date.now() - start) / 1000, jobCount: jobs.length }, `jobProcessor.processed`);
-      
+
       await Promise.all(
         jobs.map(async (job) => {
           try {
@@ -119,7 +121,7 @@ export function JobProcessor(
               } catch (hookError) {
                 logger.error({ error: errorToJson(hookError as Error), jobId: j.id }, `jobProcessor.onJobFailed.error`);
               }
-            })
+            });
           }
         }
       }, connection);
