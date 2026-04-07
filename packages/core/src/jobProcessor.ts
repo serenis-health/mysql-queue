@@ -113,15 +113,13 @@ export function JobProcessor(
             await database.failJobs(trx, ids, queue.maxRetries, queue.minDelayMs, queue.backoffMultiplier, errorToJson(error));
             logger.error({ error: errorToJson(error), jobIds: ids }, `jobProcessor.processBatch.jobsChunkMarkedAsFailed`);
             const terminalJobs = chunkJobs.filter((j) => j.attempts + 1 >= queue.maxRetries);
-            await Promise.all(
-              terminalJobs.map(async (j) => {
-                try {
-                  await options.onJobFailed?.(error, { id: j.id, queueName: queue.name });
-                } catch (hookError) {
-                  logger.error({ error: errorToJson(hookError as Error), jobId: j.id }, `jobProcessor.onJobFailed.error`);
-                }
-              }),
-            );
+            terminalJobs.forEach(async (j) => {
+              try {
+                await options.onJobFailed?.(error, { id: j.id, queueName: queue.name });
+              } catch (hookError) {
+                logger.error({ error: errorToJson(hookError as Error), jobId: j.id }, `jobProcessor.onJobFailed.error`);
+              }
+            })
           }
         }
       }, connection);
