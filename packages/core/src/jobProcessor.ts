@@ -115,9 +115,9 @@ export function JobProcessor(
             await database.failJobs(trx, ids, queue.maxRetries, queue.minDelayMs, queue.backoffMultiplier, errorToJson(error));
             logger.error({ error: errorToJson(error), jobIds: ids }, `jobProcessor.processBatch.jobsChunkMarkedAsFailed`);
             const terminalJobs = chunkJobs.filter((j) => j.attempts + 1 >= queue.maxRetries);
-            terminalJobs.forEach(async (j) => {
+            terminalJobs.forEach((j) => {
               try {
-                await options.onJobFailed?.(error, { id: j.id, queueName: queue.name });
+                options.onJobFailed?.(error, { id: j.id, queueName: queue.name });
               } catch (hookError) {
                 logger.error({ error: errorToJson(hookError as Error), jobId: j.id }, `jobProcessor.onJobFailed.error`);
               }
@@ -145,7 +145,7 @@ export function connectionToSession(connection: PoolConnection): Session {
 export type JobProcessorOptions = {
   callbackBatchSize: number;
   onJobClaimed?: (job: JobWithQueueName) => void | Promise<void>;
-  onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void | Promise<void>;
+  onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void;
   onJobProcessed?: (job: JobWithQueueName) => void | Promise<void>;
   pollingBatchSize: number;
   pollingIntervalMs: number;
