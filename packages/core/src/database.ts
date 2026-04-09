@@ -168,6 +168,20 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       number: 13,
       up: `ALTER TABLE ${queuesTable()} RENAME COLUMN cleanupRetentionDays TO jobsRetentionDays`,
     },
+    {
+      down: `
+        ALTER TABLE ${jobsTable()}
+          DROP INDEX idx_queueId_status_startAfter_createdAt_priority_id,
+          ADD INDEX idx_queueId_status_createdAt_priority_id (queueId, status, createdAt, priority DESC, id ASC)
+      `,
+      name: "optimize-polling-index",
+      number: 14,
+      up: `
+        ALTER TABLE ${jobsTable()}
+          DROP INDEX idx_queueId_status_createdAt_priority_id,
+          ADD INDEX idx_queueId_status_startAfter_createdAt_priority_id (queueId, status, startAfter, createdAt, priority DESC, id ASC)
+      `,
+    },
   ];
 
   async function runWithPoolConnection<T>(cb: (connection: PoolConnection) => Promise<T>) {
@@ -351,7 +365,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     },
     async getPendingJobs(connection: PoolConnection, queueId: string, limit: number) {
       const [rows] = await connection.query<RowDataPacket[]>(
-        `SELECT * FROM ${jobsTable()} FORCE INDEX (idx_queueId_status_createdAt_priority_id) WHERE queueId = ? AND status = ? AND startAfter <= ? ORDER BY createdAt ASC, priority DESC LIMIT ? FOR UPDATE SKIP LOCKED`,
+        `SELECT * FROM ${jobsTable()} WHERE queueId = ? AND status = ? AND startAfter <= ? ORDER BY startAfter ASC, createdAt ASC, priority DESC LIMIT ? FOR UPDATE SKIP LOCKED`,
         [queueId, "pending", new Date(), limit],
       );
       return rows;
