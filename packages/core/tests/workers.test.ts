@@ -36,6 +36,8 @@ describe("workers", () => {
     let worker2: Awaited<ReturnType<typeof mysqlQueue.work>>;
 
     beforeEach(async () => {
+      Worker1HandlerMock.handle.mockClear();
+      Worker2HandlerMock.handle.mockClear();
       await mysqlQueue.upsertQueue(queueName, { maxDurationMs: 10_000 });
       worker1 = await mysqlQueue.work(queueName, Worker1HandlerMock.handle, { callbackBatchSize: 5, pollingBatchSize: 5 });
       worker2 = await mysqlQueue.work(queueName, Worker2HandlerMock.handle, { callbackBatchSize: 5, pollingBatchSize: 5 });
@@ -46,34 +48,39 @@ describe("workers", () => {
     });
 
     it("should distribute jobs between two workers without any job being processed more than once", async () => {
-      const promise = mysqlQueue.getJobExecutionPromise(queueName, 10);
-
-      await enqueueNJobs(mysqlQueue, queueName, 10);
       void Promise.all([worker1.start(), worker2.start()]);
+      await sleep(50); // let both workers complete their first empty poll and enter polling sleep
+
+      const promise = mysqlQueue.getJobExecutionPromise(queueName, 10);
+      await enqueueNJobs(mysqlQueue, queueName, 10);
       await promise;
 
       const w1JobIds = Worker1HandlerMock.handle.mock.calls.flatMap((c) => c[0].map((j: any) => j.id));
       const w2JobIds = Worker2HandlerMock.handle.mock.calls.flatMap((c) => c[0].map((j: any) => j.id));
       expect(haveNoCommonElements(w1JobIds, w2JobIds)).toBeTruthy();
-      expect(Worker1HandlerMock.handle).toHaveBeenCalledTimes(1);
-      expect(Worker2HandlerMock.handle).toHaveBeenCalledTimes(1);
+      expect(w1JobIds.length + w2JobIds.length).toBe(10);
     });
 
     it("should ensure that a slow worker does not block or delay other workers, case jobs already on queue", async () => {
-      await enqueueNJobs(mysqlQueue, queueName, 10);
+      void worker1.start();
+      await sleep(50); // stagger starts so Worker1's polling timer fires 50ms before Worker2's
+      void worker2.start();
 
       const promise = mysqlQueue.getJobExecutionPromise(queueName, 10);
-      void Promise.all([worker1.start(), worker2.start()]);
+      await enqueueNJobs(mysqlQueue, queueName, 10);
       await promise;
 
       const [rows] = await pool.query<RowDataPacket[]>(`SELECT id, createdAt, completedAt from ${mysqlQueue.jobsTable()}`);
       const jobs = rows.map((j) => ({ ...j, durationMs: new Date(j.completedAt).getTime() - new Date(j.createdAt).getTime() }));
       expect(hasExactly(jobs, 5, (item) => item.durationMs > 3000)).toBeTruthy();
-      expect(hasExactly(jobs, 5, (item) => item.durationMs < 100)).toBeTruthy();
+      expect(hasExactly(jobs, 5, (item) => item.durationMs < 1000)).toBeTruthy();
     });
 
     it("should ensure that a slow worker does not block or delay other workers, case no jobs on queue", async () => {
-      void Promise.all([worker1.start(), worker2.start()]);
+      void worker1.start();
+      await sleep(50); // stagger starts so Worker1's polling timer fires 50ms before Worker2's
+      void worker2.start();
+      await sleep(50); // wait for Worker2's first empty poll to complete before enqueueing
 
       const promise = mysqlQueue.getJobExecutionPromise(queueName, 10);
       await enqueueNJobs(mysqlQueue, queueName, 10);

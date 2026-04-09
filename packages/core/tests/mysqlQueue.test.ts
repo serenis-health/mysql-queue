@@ -86,6 +86,11 @@ describe("mysqlQueue", () => {
           id: 13,
           name: "rename-queue-cleanup-retention-to-jobs-retention-days",
         },
+        {
+          applied_at: expect.any(Date),
+          id: 14,
+          name: "optimize-polling-index",
+        },
       ]);
     });
 
