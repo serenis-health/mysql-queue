@@ -13,10 +13,12 @@ export function JobProcessor(
   workerAbortSignal: AbortSignal,
   options: JobProcessorOptions,
 ) {
+  let pausedCacheExpiresAt = 0;
+
   return {
     async process(): Promise<boolean> {
       if (workerAbortSignal.aborted) return false;
-      if (await database.isQueuePaused(queue.id)) return false;
+      if (await isQueuePaused()) return false;
       const start = Date.now();
 
       const jobs = await claimJobsForProcessing();
@@ -51,6 +53,13 @@ export function JobProcessor(
       return true;
     },
   };
+
+  async function isQueuePaused(): Promise<boolean> {
+    if (Date.now() < pausedCacheExpiresAt) return false;
+    const paused = await database.isQueuePaused(queue.id);
+    pausedCacheExpiresAt = paused ? 0 : Date.now() + PAUSED_CACHE_TTL_MS;
+    return paused;
+  }
 
   async function claimJobsForProcessing() {
     return await database.runWithPoolConnection(async (connection) => {
@@ -159,3 +168,5 @@ export type JobProcessorOptions = {
   pollingBatchSize: number;
   pollingIntervalMs: number;
 };
+
+const PAUSED_CACHE_TTL_MS = 5 * 60 * 1000;
