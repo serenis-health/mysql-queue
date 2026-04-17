@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.12.1](https://github.com/serenis-health/mysql-queue/compare/0.12.0...0.12.1) (2026-04-17)
+
+### Performance Improvements
+
+* **core:** better polling index ([01afd8b](https://github.com/serenis-health/mysql-queue/commit/01afd8bbb64e4aaa2b79c59022c223430133703b))
+* **core:** check for paused queue one time every 5min ([4897cb4](https://github.com/serenis-health/mysql-queue/commit/4897cb4d2d83f5fda02b2bfd80b678eccfaf7ee1))
+
 # [0.12.0](https://github.com/serenis-health/mysql-queue/compare/0.11.1...0.12.0) (2026-04-07)
 
 ### Features
