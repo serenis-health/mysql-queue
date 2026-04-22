@@ -1,9 +1,10 @@
 import { Database } from "./database";
 import { Logger } from "./logger";
+import { Metrics } from "./metrics";
 import { RowDataPacket } from "mysql2/promise";
 
 export function createRescuer(database: Database, logger: Logger, options: RescuerOptions) {
-  const { batchSize, rescueAfterMs } = options;
+  const { batchSize, metrics, rescueAfterMs } = options;
 
   return {
     async rescue() {
@@ -29,6 +30,7 @@ export function createRescuer(database: Database, logger: Logger, options: Rescu
         );
 
         logger.debug({ jobsCount: stuckJobs.length, queuesCount: Object.keys(jobsByQueue).length }, "rescuer.foundStuckJobs");
+        metrics.jobsRescued(stuckJobs.length);
 
         for (const [queueId, jobIds] of Object.entries(jobsByQueue)) {
           const queue = await database.getQueueById(connection, queueId);
@@ -46,6 +48,7 @@ export function createRescuer(database: Database, logger: Logger, options: Rescu
 }
 
 interface RescuerOptions {
-  rescueAfterMs: number;
   batchSize: number;
+  metrics: Metrics;
+  rescueAfterMs: number;
 }

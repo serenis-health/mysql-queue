@@ -3,6 +3,7 @@ import { Database } from "./database";
 import { errorToJson } from "./utils";
 import { executeJobsConcurrently } from "./concurrentJobProcessor";
 import { Logger } from "./logger";
+import { Metrics } from "./metrics";
 import { PoolConnection } from "mysql2/promise";
 
 export function JobProcessor(
@@ -23,6 +24,15 @@ export function JobProcessor(
 
       const jobs = await claimJobsForProcessing();
       if (!jobs) return false;
+      const claimedAt = Date.now();
+
+      for (const job of jobs) {
+        const eligibleAt = Math.max(job.createdAt.getTime(), job.startAfter.getTime());
+        options.metrics.jobQueueWaitTime(queue.name, job.name, (claimedAt - eligibleAt) / 1000);
+      }
+      for (const [jobName, count] of countByName(jobs)) {
+        options.metrics.jobsClaimed(queue.name, jobName, count);
+      }
 
       await Promise.all(
         jobs.map(async (job) => {
@@ -34,11 +44,24 @@ export function JobProcessor(
         }),
       );
 
+      const executionStart = Date.now();
       const result = await executeJobsConcurrently(jobs, options.callbackBatchSize, workerAbortSignal, executeCallbackWithTimeout);
+      const executionSeconds = (Date.now() - executionStart) / 1000;
 
-      await persistResults(result.successful.ids, result.failed);
+      await persistResults(result.successful, result.failed);
 
-      logger.debug({ elapsedSeconds: (Date.now() - start) / 1000, jobCount: jobs.length }, `jobProcessor.processed`);
+      for (const [jobName, count] of countByName(result.manuallyCompleted.jobs)) {
+        options.metrics.jobsCompleted(queue.name, jobName, count);
+      }
+
+      const allProcessedJobs = [...result.successful.jobs, ...result.manuallyCompleted.jobs, ...result.failed.flatMap((f) => f.jobs)];
+      for (const job of allProcessedJobs) {
+        options.metrics.jobExecutionTime(queue.name, job.name, executionSeconds);
+      }
+
+      const elapsedSeconds = (Date.now() - start) / 1000;
+      options.metrics.jobProcessingDuration(queue.name, elapsedSeconds);
+      logger.debug({ elapsedSeconds, jobCount: jobs.length }, `jobProcessor.processed`);
 
       await Promise.all(
         jobs.map(async (job) => {
@@ -111,14 +134,18 @@ export function JobProcessor(
     }
   }
 
-  async function persistResults(successfulJobIds: string[], failedJobsData: Array<{ ids: string[]; error: Error; jobs: Job[] }>) {
+  async function persistResults(
+    successful: { ids: string[]; jobs: Job[] },
+    failedJobsData: Array<{ ids: string[]; error: Error; jobs: Job[] }>,
+  ) {
     const terminalJobsToNotify: Array<{ error: Error; job: Job }> = [];
+    const retriedJobs: Job[] = [];
 
     await database.runWithPoolConnection(async (connection) => {
       await database.runTransaction(async (trx) => {
-        if (successfulJobIds.length > 0) {
-          await database.markJobsAsCompleted(connectionToSession(trx), successfulJobIds);
-          logger.debug({ jobIds: successfulJobIds }, `jobProcessor.jobsMarkedAsCompleted`);
+        if (successful.ids.length > 0) {
+          await database.markJobsAsCompleted(connectionToSession(trx), successful.ids);
+          logger.debug({ jobIds: successful.ids }, `jobProcessor.jobsMarkedAsCompleted`);
         }
 
         if (failedJobsData.length > 0) {
@@ -126,6 +153,7 @@ export function JobProcessor(
             await database.failJobs(trx, ids, queue.maxRetries, queue.minDelayMs, queue.backoffMultiplier, errorToJson(error));
             logger.error({ error: errorToJson(error), jobIds: ids }, `jobProcessor.processBatch.jobsChunkMarkedAsFailed`);
             const terminalJobs = chunkJobs.filter((j) => j.attempts + 1 >= queue.maxRetries);
+            retriedJobs.push(...chunkJobs.filter((j) => j.attempts + 1 < queue.maxRetries));
             terminalJobs.forEach((j) => {
               terminalJobsToNotify.push({ error, job: j });
             });
@@ -133,6 +161,16 @@ export function JobProcessor(
         }
       }, connection);
     });
+
+    for (const [jobName, count] of countByName(successful.jobs)) {
+      options.metrics.jobsCompleted(queue.name, jobName, count);
+    }
+    for (const [jobName, count] of countByName(terminalJobsToNotify.map((t) => t.job))) {
+      options.metrics.jobsFailed(queue.name, jobName, count);
+    }
+    for (const [jobName, count] of countByName(retriedJobs)) {
+      options.metrics.jobsRetried(queue.name, jobName, count);
+    }
 
     // Call onJobFailed hooks after transaction is closed
     await Promise.all(
@@ -145,6 +183,12 @@ export function JobProcessor(
       }),
     );
   }
+}
+
+function countByName(jobs: Job[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const job of jobs) counts.set(job.name, (counts.get(job.name) ?? 0) + 1);
+  return counts;
 }
 
 export function connectionToSession(connection: PoolConnection): Session {
@@ -162,6 +206,7 @@ export function connectionToSession(connection: PoolConnection): Session {
 
 export type JobProcessorOptions = {
   callbackBatchSize: number;
+  metrics: Metrics;
   onJobClaimed?: (job: JobWithQueueName) => void | Promise<void>;
   onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void | Promise<void>;
   onJobProcessed?: (job: JobWithQueueName) => void | Promise<void>;
