@@ -50,7 +50,7 @@ export type GetJobsParams = {
 
 export type DbPeriodicJob = {
   name: string;
-  lastEnqueuedAt: Date | null;
+  lastRunAt: Date | null;
   nextRunAt: Date;
   createdAt: Date;
   updatedAt: Date;

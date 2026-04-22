@@ -402,7 +402,7 @@ export async function getPeriodicJobs(dbUri: string) {
       createdAt: row.createdAt.toISOString(),
       cronExpression: row.definition?.cronExpression,
       definition: row.definition,
-      lastEnqueuedAt: row.lastEnqueuedAt ? row.lastEnqueuedAt.toISOString() : null,
+      lastRunAt: row.lastRunAt ? row.lastRunAt.toISOString() : null,
       name: row.name,
       nextRunAt: row.nextRunAt.toISOString(),
       targetQueue: row.definition?.targetQueue,

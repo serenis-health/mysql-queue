@@ -23,10 +23,10 @@ const periodicJobColumns: ColumnDef<PeriodicJob>[] = [
     ),
   },
   {
-    accessorKey: "lastEnqueuedAt",
-    header: "Last Enqueued",
+    accessorKey: "lastRunAt",
+    header: "Last Run",
     cell: ({ row }) => (
-      <span className="text-xs">{row.original.lastEnqueuedAt ? <LiveTime date={new Date(row.original.lastEnqueuedAt)} /> : "Never"}</span>
+      <span className="text-xs">{row.original.lastRunAt ? <LiveTime date={new Date(row.original.lastRunAt)} /> : "Never"}</span>
     ),
   },
   {
