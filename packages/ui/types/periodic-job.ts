@@ -2,7 +2,7 @@ export type PeriodicJob = {
   name: string;
   cronExpression?: string;
   targetQueue?: string;
-  lastEnqueuedAt: string | null;
+  lastRunAt: string | null;
   nextRunAt: string;
   createdAt: string;
   updatedAt: string;
