@@ -231,7 +231,7 @@ describe("workers", () => {
       await promise;
 
       expect(OnJobFailedMock).toHaveBeenCalledTimes(1);
-      expect(OnJobFailedMock).toHaveBeenCalledWith(error, { id: jobId, queueName });
+      expect(OnJobFailedMock).toHaveBeenCalledWith(error, { id: jobId, name: "1", queueName });
     });
 
     it("should call onJobClaimed once per claimed job before the handler runs", async () => {
