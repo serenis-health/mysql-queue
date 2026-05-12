@@ -138,7 +138,7 @@ export function JobProcessor(
     await Promise.all(
       terminalJobsToNotify.map(async ({ error, job }) => {
         try {
-          await options.onJobFailed?.(error, { id: job.id, queueName: queue.name });
+          await options.onJobFailed?.(error, { id: job.id, name: job.name, queueName: queue.name });
         } catch (hookError) {
           logger.error({ error: errorToJson(hookError as Error), jobId: job.id }, `jobProcessor.onJobFailed.error`);
         }
@@ -163,7 +163,7 @@ export function connectionToSession(connection: PoolConnection): Session {
 export type JobProcessorOptions = {
   callbackBatchSize: number;
   onJobClaimed?: (job: JobWithQueueName) => void | Promise<void>;
-  onJobFailed?: (error: Error, job: { id: string; queueName: string }) => void | Promise<void>;
+  onJobFailed?: (error: Error, job: { id: string; name: string; queueName: string }) => void | Promise<void>;
   onJobProcessed?: (job: JobWithQueueName) => void | Promise<void>;
   pollingBatchSize: number;
   pollingIntervalMs: number;
