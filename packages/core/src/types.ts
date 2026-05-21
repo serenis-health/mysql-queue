@@ -39,6 +39,7 @@ export interface Job {
   createdAt: Date;
   completedAt: Date | null;
   failedAt: Date | null;
+  runningAt: Date | null;
   attempts: number;
   latestFailureReason: string | null;
   queueId: string;

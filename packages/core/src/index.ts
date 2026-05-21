@@ -12,6 +12,7 @@ import {
 } from "./types";
 import { createCleanup } from "./cleanup";
 import { createLeaderElection } from "./leaderElection";
+import { createMetrics } from "./metrics";
 import { createPeriodic } from "./periodic";
 import { createRescuer } from "./rescuer";
 import { Database } from "./database";
@@ -29,8 +30,13 @@ export function MysqlQueue(_options: Options) {
     tablesPrefix: options.tablesPrefix,
     uri: options.dbUri,
   });
-  const workersFactory = WorkersFactory(logger, database);
-  const rescuer = createRescuer(database, logger, { batchSize: options.rescuerBatchSize, rescueAfterMs: options.rescuerRescueAfterMs });
+  const metrics = createMetrics();
+  const workersFactory = WorkersFactory(logger, database, metrics);
+  const rescuer = createRescuer(database, logger, {
+    batchSize: options.rescuerBatchSize,
+    metrics,
+    rescueAfterMs: options.rescuerRescueAfterMs,
+  });
   const rescuerScheduler = createScheduler(rescuer.rescue, logger, {
     intervalMs: options.rescuerIntervalMs,
     runOnStart: options.rescuerRunOnStart,
@@ -174,6 +180,11 @@ export function MysqlQueue(_options: Options) {
     });
 
     const affectedRows = await database.addJobs(queueName, jobsForInsert, options.partitionKey, session);
+    if (affectedRows) {
+      const countsByName: Record<string, number> = {};
+      for (const job of jobsForInsert) countsByName[job.name] = (countsByName[job.name] ?? 0) + 1;
+      for (const [jobName, count] of Object.entries(countsByName)) metrics.jobsEnqueued(queueName, jobName, count);
+    }
     logger.debug({ jobCount: affectedRows, jobs: jobsForInsert }, "enqueue.jobsAddedToQueue");
     logger.info({ jobCount: affectedRows }, "enqueue.jobsAddedToQueue");
     return { enqueuedJobs: affectedRows, jobIds: jobsForInsert.map((j) => j.id) };
