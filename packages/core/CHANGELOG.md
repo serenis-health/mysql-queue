@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [0.13.0](https://github.com/serenis-health/mysql-queue/compare/0.12.1...0.13.0) (2026-06-05)
+
+### Features
+
+* **cleanup:** add duration logs ([78c5a1b](https://github.com/serenis-health/mysql-queue/commit/78c5a1b2ee7aad9beb9b145cbcced4d4c38f4b34))
+* **worker:** include job name in onJobFailed hook ([97f5087](https://github.com/serenis-health/mysql-queue/commit/97f5087b1861eb6dc02e900a5aaae2ea0af765ec))
+
+### Performance Improvements
+
+* **cleanup:** remove ORDER BY to eliminate per-batch filesort ([969daf7](https://github.com/serenis-health/mysql-queue/commit/969daf7b1ec30d540e1cbbcc3974a6ba32bf2fe8))
+
 ## [0.12.1](https://github.com/serenis-health/mysql-queue/compare/0.12.0...0.12.1) (2026-04-17)
 
 ### Performance Improvements
