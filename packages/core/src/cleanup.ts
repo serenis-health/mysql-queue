@@ -10,6 +10,7 @@ export function createCleanup(database: Database, logger: Logger, options: Clean
       let iterations = 0;
       let deleted: number;
 
+      const startedAt = Date.now();
       do {
         deleted = await database.deleteCompletedJobsOlderThan(partitionKey, retentionDays, batchSize);
         totalDeleted += deleted;
@@ -17,7 +18,7 @@ export function createCleanup(database: Database, logger: Logger, options: Clean
       } while (iterations < maxIterationsForRun && deleted >= batchSize);
 
       if (totalDeleted > 0) {
-        logger.info({ batchCount: iterations, totalDeleted }, "cleanup.completedJobsDeleted");
+        logger.info({ batchCount: iterations, durationMs: Date.now() - startedAt, totalDeleted }, "cleanup.completedJobsDeleted");
       } else {
         logger.debug("cleanup.noCompletedJobsToDelete");
       }
