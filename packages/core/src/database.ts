@@ -285,9 +285,7 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
                INNER JOIN ${queuesTable()} q ON j2.queueId = q.id
                WHERE q.partitionKey = ?
                  AND j2.status = 'completed'
-                 AND j2.completedAt IS NOT NULL
                  AND j2.completedAt < DATE_SUB(NOW(3), INTERVAL COALESCE(q.jobsRetentionDays, ?) DAY)
-               ORDER BY j2.completedAt ASC, j2.id ASC
                LIMIT ?
              ) AS j
            )`,
