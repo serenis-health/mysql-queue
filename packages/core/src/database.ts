@@ -6,8 +6,25 @@ const TABLES_NAME_PREFIX = "mysql_queue_";
 
 export type Database = ReturnType<typeof Database>;
 
-export function Database(logger: Logger, options: { uri: string; tablesPrefix?: string }) {
-  const pool = createPool({ multipleStatements: true, timezone: "Z", uri: options.uri, waitForConnections: true });
+export function Database(
+  logger: Logger,
+  options: {
+    uri: string;
+    tablesPrefix?: string;
+    connectionLimit?: number;
+    queueLimit?: number;
+    enableKeepAlive?: boolean;
+  },
+) {
+  const pool = createPool({
+    connectionLimit: options.connectionLimit ?? 10,
+    enableKeepAlive: options.enableKeepAlive ?? true,
+    multipleStatements: true,
+    queueLimit: options.queueLimit ?? 0,
+    timezone: "Z",
+    uri: options.uri,
+    waitForConnections: true,
+  });
 
   const migrations = [
     {

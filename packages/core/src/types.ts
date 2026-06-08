@@ -17,6 +17,9 @@ export interface Options {
   cleanupCronExpression?: string;
   cleanupBatchSize?: number;
   cleanupMaxIterationsForRun?: number;
+  poolConnectionLimit?: number;
+  poolQueueLimit?: number;
+  poolEnableKeepAlive?: boolean;
 }
 
 export interface Queue {

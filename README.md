@@ -107,4 +107,62 @@ The third argument to `work()` is optional. Besides tuning polling and batch siz
 
 - **`onJobFailed`** — Called when a job has exhausted retries and is considered permanently failed (receives the error and `{ id, queueName }`). Supports async functions. The hooks are called **after** the database transaction closes to avoid holding connections. Errors thrown from this hook are caught and logged.
 
+#### Processing jobs in batches (`pollingBatchSize > 1`)
+
+By default a worker picks up one job at a time. For high-throughput queues you can have it grab several at once with two options:
+
+- **`pollingBatchSize`** — how many jobs the worker fetches on each poll.
+- **`callbackBatchSize`** — how many of those jobs are passed to a single call of your handler. The fetched jobs are split into groups of this size, and the groups run **in parallel**.
+
+Your handler always receives an **array** of jobs. Example: `pollingBatchSize: 50, callbackBatchSize: 10` fetches 50 jobs and runs your handler 5 times in parallel, each call getting 10 jobs.
+
+```typescript
+const worker = await mysqlQueue.work(
+  "emails",
+  async (jobs: Job[], signal: AbortSignal, ctx: CallbackContext) => {
+    // `jobs` is a group of up to callbackBatchSize jobs — process them together
+    await emailService.sendBulk(
+      jobs.map((j) => j.payload),
+      signal,
+    );
+  },
+  { pollingBatchSize: 50, callbackBatchSize: 10 },
+);
+```
+
+Things to keep in mind:
+
+- **Process every job in the array**, not just `jobs[0]` — e.g. a bulk insert or a bulk send.
+- **Retries happen per group, not per job.** If your handler throws, every job in that group is retried together. Use `callbackBatchSize: 1` if you need each job to succeed or fail on its own; use a larger value for bulk efficiency.
+- **Make your handler idempotent.** Since the whole group retries together, jobs that already succeeded before a later one failed will run again on retry. Use `idempotentKey` when enqueuing and/or make the side effect safe to repeat.
+- **The job timeout (`maxDurationMs`) applies to one handler call.** With larger groups, give it enough time to process them all, otherwise the call is aborted and retried.
+- **Larger batches recover more slowly from a crash.** If a worker dies mid-batch, those jobs are only retried after `rescuerRescueAfterMs` (default 1h). Lower it if you use large batches and want faster recovery.
+
+> **⚠️ Watch your own resources.** A worker runs your handler in parallel: it makes about `pollingBatchSize / callbackBatchSize` simultaneous calls (e.g. `50 / 10` = 5), multiplied by the number of workers you run. If your handler hits a shared resource with limited capacity — your app's database connection pool, an HTTP client pool, a rate-limited API — that concurrency can exhaust it. Size those pools/limits for the peak number of handler calls you'll have in flight, or keep the batch sizes modest. This is independent of mysql-queue's own [connection pool](#connection-pool).
+
+### Connection pool
+
+mysql-queue keeps a pool of MySQL connections (shared by all your workers and the internal background tasks). By default the pool allows **10** connections. Each worker needs a connection only for the brief moments it reads and updates jobs in the database — **not** while your handler runs — so even long-running jobs don't tie up the pool.
+
+If you run a lot of workers at once, 10 connections may not be enough. When they're all busy, new requests **wait in line** rather than failing, so the symptom isn't an error — it's jobs being picked up more slowly. If you see that, raise the pool size. A good starting point:
+
+```
+poolConnectionLimit ≈ (number of workers running at once) + a few spare
+```
+
+The spare ones leave room for the background tasks (retries of stuck jobs, periodic jobs, cleanup).
+
+You can tune the pool when creating the instance:
+
+```typescript
+const mysqlQueue = MysqlQueue({
+  dbUri: "mysql://...",
+  poolConnectionLimit: 20, // max simultaneous connections (default: 10)
+  poolQueueLimit: 0, // how many requests may wait when the pool is full; 0 = unlimited (default)
+  poolEnableKeepAlive: true, // keep idle connections alive so they aren't dropped after quiet periods (default: true)
+});
+```
+
+`poolEnableKeepAlive` is on by default because it prevents a common gotcha: a connection that sat idle gets silently closed by MySQL or a proxy, and the next job using it fails with a connection error. The keep-alive probes keep those connections healthy.
+
 _Created with inspiration from [pg-boss](https://github.com/timgit/pg-boss), thanks Tim!_
