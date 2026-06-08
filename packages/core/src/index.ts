@@ -26,6 +26,9 @@ export function MysqlQueue(_options: Options) {
     prettyPrint: options.loggingPrettyPrint,
   });
   const database = Database(logger, {
+    connectionLimit: options.poolConnectionLimit,
+    enableKeepAlive: options.poolEnableKeepAlive,
+    queueLimit: options.poolQueueLimit,
     tablesPrefix: options.tablesPrefix,
     uri: options.dbUri,
   });
