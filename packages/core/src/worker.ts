@@ -3,9 +3,10 @@ import { JobWithQueueName, Queue, WorkerCallback } from "./types";
 import { Database } from "./database";
 import { errorToJson } from "./utils";
 import { Logger } from "./logger";
+import { Metrics } from "./metrics";
 import { randomUUID } from "node:crypto";
 
-export function WorkersFactory(logger: Logger, database: Database) {
+export function WorkersFactory(logger: Logger, database: Database, metrics: Metrics) {
   const jobExecutionTrackers: Record<string, { remaining: number; promise: (job: JobWithQueueName) => void }> = {};
   const workers: Worker[] = [];
 
@@ -23,6 +24,7 @@ export function WorkersFactory(logger: Logger, database: Database) {
     ) {
       const worker = Worker(database, callback, queue, logger, {
         ...options,
+        metrics,
         onJobProcessed: (job) => {
           const tracker = jobExecutionTrackers[queue.name];
           if (tracker) {
@@ -78,6 +80,7 @@ export function Worker(database: Database, callback: WorkerCallback, queue: Queu
         `worker.starting`,
       );
 
+      options.metrics.workerStarted(queue.name);
       while (!signal.aborted) {
         try {
           const hadJobs = await jobProcessor.process();
@@ -87,6 +90,7 @@ export function Worker(database: Database, callback: WorkerCallback, queue: Queu
           wLogger.error({ error: errorToJson(typedError) }, `worker.loop.error`);
         }
       }
+      options.metrics.workerStopped(queue.name);
       stopPromiseResolve?.();
       wLogger.debug(`worker.aborted`);
     },
