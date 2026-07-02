@@ -168,6 +168,7 @@ export function MysqlQueue(_options: Options) {
         payload: payloadStr,
         pendingDedupKey: p.pendingDedupKey,
         priority: p.priority || 0,
+        sequenceKey: p.sequenceKey,
         startAfter: p.startAfter || now,
         status: "pending",
       };

@@ -33,6 +33,7 @@ export interface Queue {
 
 export interface Job {
   id: string;
+  seq: number;
   name: string;
   payload: unknown;
   status: "pending" | "running" | "completed" | "failed";
@@ -43,6 +44,7 @@ export interface Job {
   latestFailureReason: string | null;
   queueId: string;
   startAfter: Date;
+  sequenceKey: string | null;
 }
 
 export type JobWithQueueName = Job & { queueName: string };
@@ -57,6 +59,7 @@ export interface JobForInsert {
   createdAt: Date;
   idempotentKey?: string;
   pendingDedupKey?: string;
+  sequenceKey?: string;
 }
 
 export type WorkerCallback = (jobs: Job[], signal: AbortSignal, ctx: CallbackContext) => Promise<void> | void;
@@ -80,6 +83,13 @@ export interface AddParams<T> {
   startAfter?: Date;
   idempotentKey?: string;
   pendingDedupKey?: string;
+  /**
+   * Serializes jobs sharing the same key: a job runs only after every earlier-created job with
+   * the same sequenceKey (in the same queue) has completed. A permanently failed predecessor
+   * blocks the sequence. Strict ordering is guaranteed for jobs enqueued sequentially or within
+   * a single batch/transaction; independent concurrent producers of the same key get best-effort order.
+   */
+  sequenceKey?: string;
 }
 
 export type EnqueueParams<T> = AddParams<T> | AddParams<T>[];
