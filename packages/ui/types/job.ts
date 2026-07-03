@@ -14,4 +14,6 @@ export type Job = {
   maxRetries: number;
   name: string;
   completedInMs: number | null;
+  seq: number;
+  sequenceKey: string | null;
 };

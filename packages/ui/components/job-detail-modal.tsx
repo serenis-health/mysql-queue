@@ -23,9 +23,10 @@ interface JobDetailModalProps {
   job: Job | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onViewSequence?: (sequenceKey: string) => void;
 }
 
-export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps) {
+export function JobDetailModal({ job, open, onOpenChange, onViewSequence }: JobDetailModalProps) {
   if (!job) return null;
 
   function copyJobId(job: Job) {
@@ -63,6 +64,21 @@ export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps)
               <JobStatusBadge job={job} />
             </div>
           </div>
+
+          {job.sequenceKey ? (
+            <div>
+              <div className="font-semibold mb-1">Sequence</div>
+              <div className="flex items-center gap-2 text-sm">
+                <span className="font-mono">{job.sequenceKey}</span>
+                <span className="text-muted-foreground">· position #{job.seq}</span>
+                {onViewSequence ? (
+                  <Button variant="outline" size="sm" className="ml-auto" onClick={() => onViewSequence(job.sequenceKey!)}>
+                    View sequence
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
           <div className="flex space-x-2">
             <div className="flex-1">

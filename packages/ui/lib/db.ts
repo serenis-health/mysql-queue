@@ -109,6 +109,11 @@ export async function getJobs(dbUri: string, params: GetJobsParams): Promise<{ j
       }
     }
 
+    if (params.sequenceKey) {
+      whereClause += ` AND j.sequenceKey = ?`;
+      filters.push(params.sequenceKey);
+    }
+
     if (params.searchQuery) {
       whereClause += ` AND (j.id LIKE ? OR JSON_SEARCH(j.payload, 'one', ?, NULL, '$') IS NOT NULL)`;
       filters.push(`%${params.searchQuery}%`);
@@ -136,12 +141,14 @@ export async function getJobs(dbUri: string, params: GetJobsParams): Promise<{ j
 
     const { limit, offset } = parsePagination(params);
 
+    const orderClause = params.sequenceKey ? `ORDER BY j.seq ASC` : `ORDER BY j.createdAt DESC`;
+
     const jobsQuery = `
       SELECT j.*, q.name as queueName, q.maxRetries
       FROM mysql_queue_jobs j
       LEFT JOIN mysql_queue_queues q ON j.queueId = q.id
       ${whereClause}
-      ORDER BY j.createdAt DESC LIMIT ? OFFSET ?
+      ${orderClause} LIMIT ? OFFSET ?
     `;
     const [rows] = await connection.query(jobsQuery, [...filters, limit, offset]);
     const dbJobs = rows as unknown as DbJobWithQueue[];
@@ -165,6 +172,8 @@ export async function getJobs(dbUri: string, params: GetJobsParams): Promise<{ j
         maxRetries: j.maxRetries,
         name: j.name,
         completedInMs: endedAt ? endedAt.getTime() - j.createdAt.getTime() : null,
+        seq: j.seq,
+        sequenceKey: j.sequenceKey,
       };
     });
 

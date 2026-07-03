@@ -61,6 +61,8 @@ interface JobsTableProps {
   onQueueFilterChange?: (values: string[]) => void;
   nameFilter?: string[];
   onNameFilterChange?: (values: string[]) => void;
+  sequenceKeyFilter?: string;
+  onSequenceKeyFilterChange?: (value: string | undefined) => void;
   pagination?: { pageIndex: number; pageSize: number };
   onPaginationChange?: (pagination: { pageIndex: number; pageSize: number }) => void;
   autoReloadEnabled?: boolean;
@@ -86,6 +88,8 @@ export function JobsTable({
   onQueueFilterChange,
   nameFilter,
   onNameFilterChange,
+  sequenceKeyFilter,
+  onSequenceKeyFilterChange,
   pagination,
   onPaginationChange,
   autoReloadEnabled,
@@ -106,9 +110,22 @@ export function JobsTable({
       accessorKey: "id",
       header: "ID",
       cell: ({ row }) => (
-        <div className="flex flex-row gap-2">
+        <div className="flex flex-row items-center gap-2">
           <pre className="text-xs">{row.original.id}</pre>{" "}
           {row.original.payload["_periodic"] ? <Badge variant="outline">periodic</Badge> : ""}
+          {row.original.sequenceKey ? (
+            <Badge
+              variant="secondary"
+              className="cursor-pointer hover:bg-secondary/80"
+              title={`Filter jobs in sequence "${row.original.sequenceKey}"`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSequenceKeyFilterChange?.(row.original.sequenceKey ?? undefined);
+              }}
+            >
+              seq: {row.original.sequenceKey} #{row.original.seq}
+            </Badge>
+          ) : null}
         </div>
       ),
     },
@@ -150,6 +167,19 @@ export function JobsTable({
 
   return (
     <>
+      {sequenceKeyFilter ? (
+        <div className="mb-2 flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+          <span className="text-muted-foreground">Showing sequence</span>
+          <span className="font-mono font-medium">{sequenceKeyFilter}</span>
+          <span className="text-muted-foreground">in execution order</span>
+          <button
+            className="ml-auto text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+            onClick={() => onSequenceKeyFilterChange?.(undefined)}
+          >
+            clear
+          </button>
+        </div>
+      ) : null}
       <DataTable
         columns={jobColumns}
         data={jobs}
@@ -204,7 +234,19 @@ export function JobsTable({
           },
         ]}
       />
-      <JobDetailModal job={selectedJob} open={modalOpen} onOpenChange={setModalOpen} />
+      <JobDetailModal
+        job={selectedJob}
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        onViewSequence={
+          onSequenceKeyFilterChange
+            ? (key) => {
+                setModalOpen(false);
+                onSequenceKeyFilterChange(key);
+              }
+            : undefined
+        }
+      />
     </>
   );
 }

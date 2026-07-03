@@ -15,6 +15,8 @@ export type DbJob = {
   status: "pending" | "completed" | "failed" | "running";
   queueName: string;
   maxRetries: number;
+  seq: number;
+  sequenceKey: string | null;
 };
 
 export interface DbQueue {
@@ -41,6 +43,7 @@ export type GetJobsParams = {
   status?: string | string[];
   queueName?: string | string[];
   name?: string | string[];
+  sequenceKey?: string;
   searchQuery?: string;
   createdAtFrom?: string;
   createdAtTo?: string;

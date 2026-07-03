@@ -20,6 +20,7 @@ export default function JobsPage() {
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [queueFilter, setQueueFilter] = useState<string[]>([]);
   const [nameFilter, setNameFilter] = useState<string[]>([]);
+  const [sequenceKeyFilter, setSequenceKeyFilter] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 20 });
   const [autoReloadEnabled, setAutoReloadEnabled] = useState(false);
@@ -32,6 +33,7 @@ export default function JobsPage() {
     statuses?: string[],
     queues?: string[],
     names?: string[],
+    sequenceKey?: string,
     pageIndex?: number,
     pageSize?: number,
   ) {
@@ -61,6 +63,9 @@ export default function JobsPage() {
       }
       if (names && names.length > 0) {
         names.forEach((name) => params.append("name", name));
+      }
+      if (sequenceKey) {
+        params.set("sequenceKey", sequenceKey);
       }
       if (pageSize !== undefined) {
         params.set("limit", pageSize.toString());
@@ -109,15 +114,46 @@ export default function JobsPage() {
   }
 
   useEffect(() => {
-    void fetchJobs(searchQuery, dateFrom, dateTo, statusFilter, queueFilter, nameFilter, pagination.pageIndex, pagination.pageSize);
+    void fetchJobs(
+      searchQuery,
+      dateFrom,
+      dateTo,
+      statusFilter,
+      queueFilter,
+      nameFilter,
+      sequenceKeyFilter,
+      pagination.pageIndex,
+      pagination.pageSize,
+    );
     void fetchCounts(searchQuery, dateFrom, dateTo, statusFilter, queueFilter, nameFilter);
-  }, [searchQuery, dateFrom, dateTo, statusFilter, queueFilter, nameFilter, pagination.pageIndex, pagination.pageSize, activeConnection]);
+  }, [
+    searchQuery,
+    dateFrom,
+    dateTo,
+    statusFilter,
+    queueFilter,
+    nameFilter,
+    sequenceKeyFilter,
+    pagination.pageIndex,
+    pagination.pageSize,
+    activeConnection,
+  ]);
 
   useEffect(() => {
     if (!autoReloadEnabled) return;
 
     function fetchJobsAndCounts() {
-      void fetchJobs(searchQuery, dateFrom, dateTo, statusFilter, queueFilter, nameFilter, pagination.pageIndex, pagination.pageSize);
+      void fetchJobs(
+        searchQuery,
+        dateFrom,
+        dateTo,
+        statusFilter,
+        queueFilter,
+        nameFilter,
+        sequenceKeyFilter,
+        pagination.pageIndex,
+        pagination.pageSize,
+      );
       void fetchCounts(searchQuery, dateFrom, dateTo, statusFilter, queueFilter, nameFilter);
     }
 
@@ -136,6 +172,7 @@ export default function JobsPage() {
     statusFilter,
     queueFilter,
     nameFilter,
+    sequenceKeyFilter,
     pagination.pageIndex,
     pagination.pageSize,
   ]);
@@ -158,6 +195,8 @@ export default function JobsPage() {
       onQueueFilterChange={setQueueFilter}
       nameFilter={nameFilter}
       onNameFilterChange={setNameFilter}
+      sequenceKeyFilter={sequenceKeyFilter}
+      onSequenceKeyFilterChange={setSequenceKeyFilter}
       pagination={pagination}
       onPaginationChange={setPagination}
       autoReloadEnabled={autoReloadEnabled}
