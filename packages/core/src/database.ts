@@ -182,6 +182,25 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
           ADD INDEX idx_queueId_status_startAfter_createdAt_priority_id (queueId, status, startAfter, createdAt, priority DESC, id ASC)
       `,
     },
+    {
+      down: `
+        ALTER TABLE ${jobsTable()} DROP INDEX idx_queue_sequence;
+        ALTER TABLE ${jobsTable()} DROP COLUMN sequenceKey;
+        ALTER TABLE ${jobsTable()} DROP COLUMN seq;
+      `,
+      name: "add-sequence-key",
+      number: 15,
+      // seq is a monotonic ordinal (AUTO_INCREMENT) used to order jobs sharing a sequenceKey
+      // in strict creation order, including jobs enqueued within the same batch/transaction
+      // (which share an identical createdAt). It must be indexed at creation, hence UNIQUE KEY.
+      // status precedes seq in idx_queue_sequence so the polling gate can seek directly to
+      // non-completed earlier siblings instead of scanning the (potentially large) completed history.
+      up: `
+        ALTER TABLE ${jobsTable()} ADD COLUMN seq BIGINT NOT NULL AUTO_INCREMENT UNIQUE KEY;
+        ALTER TABLE ${jobsTable()} ADD COLUMN sequenceKey VARCHAR(255) NULL;
+        ALTER TABLE ${jobsTable()} ADD INDEX idx_queue_sequence (queueId, sequenceKey, status, seq);
+      `,
+    },
   ];
 
   async function runWithPoolConnection<T>(cb: (connection: PoolConnection) => Promise<T>) {
@@ -209,7 +228,8 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
     async addJobs(queueName: string, params: DbAddJobsParams, partitionKey: string, session?: Session) {
       if (params.length === 0) return;
       const values = [
-        ...params.flatMap((j) => [
+        ...params.flatMap((j, i) => [
+          i, // ord: pins AUTO_INCREMENT seq assignment to the caller's array order
           j.id,
           j.name,
           j.payload,
@@ -219,18 +239,23 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
           j.createdAt,
           j.idempotentKey,
           j.pendingDedupKey,
+          j.sequenceKey,
         ]),
         queueName,
         partitionKey,
       ];
 
+      // ORDER BY j.ord guarantees rows are inserted (and thus seq assigned) in the caller's
+      // array order, so jobs sharing a sequenceKey keep a deterministic creation order.
       const sql = `
-          INSERT INTO ${jobsTable()} (id, name, payload, status, priority, startAfter, createdAt, idempotentKey, pendingDedupKey, queueId)
-          SELECT j.*, q.id FROM (SELECT ? AS id, ? AS name, ? AS payload, ? AS status, ? AS priority, ? AS startAfter, ? AS createdAt, ? AS idempotentKey, ? AS pendingDedupKey ${params
+          INSERT INTO ${jobsTable()} (id, name, payload, status, priority, startAfter, createdAt, idempotentKey, pendingDedupKey, sequenceKey, queueId)
+          SELECT j.id, j.name, j.payload, j.status, j.priority, j.startAfter, j.createdAt, j.idempotentKey, j.pendingDedupKey, j.sequenceKey, q.id
+          FROM (SELECT ? AS ord, ? AS id, ? AS name, ? AS payload, ? AS status, ? AS priority, ? AS startAfter, ? AS createdAt, ? AS idempotentKey, ? AS pendingDedupKey, ? AS sequenceKey ${params
             .slice(1)
-            .map(() => "UNION ALL SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?")
+            .map(() => "UNION ALL SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?")
             .join(" ")}) AS j
           JOIN ${queuesTable()} q ON q.name = ? AND q.partitionKey = ?
+          ORDER BY j.ord
         `;
 
       let result: object[];
@@ -362,8 +387,24 @@ export function Database(logger: Logger, options: { uri: string; tablesPrefix?: 
       return rows.length ? (rows[0] as Job) : null;
     },
     async getPendingJobs(connection: PoolConnection, queueId: string, limit: number) {
+      // A job carrying a sequenceKey is eligible only once every earlier job (lower seq) with the
+      // same key in this queue has completed. Keyless jobs skip the guard via the short-circuit.
+      // FOR UPDATE OF j locks/skips only the claimable rows, never the sibling rows read by the subquery.
       const [rows] = await connection.query<RowDataPacket[]>(
-        `SELECT * FROM ${jobsTable()} WHERE queueId = ? AND status = ? AND startAfter <= ? ORDER BY startAfter ASC, createdAt ASC, priority DESC LIMIT ? FOR UPDATE SKIP LOCKED`,
+        `SELECT j.* FROM ${jobsTable()} j
+         WHERE j.queueId = ? AND j.status = ? AND j.startAfter <= ?
+           AND (
+             j.sequenceKey IS NULL
+             OR NOT EXISTS (
+               SELECT 1 FROM ${jobsTable()} b
+               WHERE b.queueId = j.queueId
+                 AND b.sequenceKey = j.sequenceKey
+                 AND b.status <> 'completed'
+                 AND b.seq < j.seq
+             )
+           )
+         ORDER BY j.startAfter ASC, j.createdAt ASC, j.priority DESC
+         LIMIT ? FOR UPDATE OF j SKIP LOCKED`,
         [queueId, "pending", new Date(), limit],
       );
       return rows;

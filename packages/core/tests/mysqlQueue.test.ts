@@ -91,6 +91,11 @@ describe("mysqlQueue", () => {
           id: 14,
           name: "optimize-polling-index",
         },
+        {
+          applied_at: expect.any(Date),
+          id: 15,
+          name: "add-sequence-key",
+        },
       ]);
     });
 
@@ -246,6 +251,8 @@ describe("mysqlQueue", () => {
           priority: 0,
           queueId: expect.any(String),
           runningAt: null,
+          seq: expect.any(Number),
+          sequenceKey: null,
           startAfter: expect.any(Date),
           status: "pending",
         });
@@ -355,6 +362,8 @@ describe("mysqlQueue", () => {
           priority: 0,
           queueId: expect.any(String),
           runningAt: null,
+          seq: expect.any(Number),
+          sequenceKey: null,
           startAfter: expect.any(Date),
           status: "pending",
         });
