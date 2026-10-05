@@ -191,7 +191,7 @@ export async function restartJob(dbUri: string, id: string): Promise<boolean> {
   return withConnection(getPool(dbUri), async (connection) => {
     // Pending and running jobs are left alone so the same job never runs twice at once.
     const [result] = await connection.query<ResultSetHeader>(
-      `UPDATE mysql_queue_jobs SET status = 'pending' WHERE id = ? AND status IN ('failed', 'completed')`,
+      `UPDATE mysql_queue_jobs SET status = 'pending', completedAt = NULL, failedAt = NULL WHERE id = ? AND status IN ('failed', 'completed')`,
       [id],
     );
     return result.affectedRows > 0;
