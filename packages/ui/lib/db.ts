@@ -1,6 +1,6 @@
 import { buildScheduledStatusFilter, normalizeToArray, parsePagination, withConnection } from "@/lib/db-utils";
 import type { DbJobWithQueue, DbLeader, DbPeriodicJob, DbQueue, GetJobsParams } from "@/lib/db-types";
-import mysql, { Pool, RowDataPacket } from "mysql2/promise";
+import mysql, { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { Job } from "@/types/job";
 import { Queue } from "@/types/queue";
 
@@ -184,6 +184,17 @@ export async function getJobById(dbUri: string, id: string): Promise<DbJobWithQu
 
     if (rows.length === 0) return null;
     return rows[0] as unknown as DbJobWithQueue;
+  });
+}
+
+export async function restartJob(dbUri: string, id: string): Promise<boolean> {
+  return withConnection(getPool(dbUri), async (connection) => {
+    // Pending and running jobs are left alone so the same job never runs twice at once.
+    const [result] = await connection.query<ResultSetHeader>(
+      `UPDATE mysql_queue_jobs SET status = 'pending' WHERE id = ? AND status IN ('failed', 'completed')`,
+      [id],
+    );
+    return result.affectedRows > 0;
   });
 }
 
