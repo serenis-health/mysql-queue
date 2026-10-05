@@ -18,6 +18,7 @@ import { formatDistanceToNowStrict } from "date-fns";
 import { Job } from "@/types/job";
 import { JobStatusBadge } from "@/components/job-status-badge";
 import { toast } from "sonner";
+import { useConnection } from "@/contexts/connection-context";
 
 interface JobDetailModalProps {
   job: Job | null;
@@ -26,7 +27,26 @@ interface JobDetailModalProps {
 }
 
 export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps) {
+  const { activeConnection } = useConnection();
+
   if (!job) return null;
+
+  async function restartJob(job: Job) {
+    if (!activeConnection) return;
+
+    const res = await fetch(`/api/jobs/restart`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ connectionId: activeConnection.id, jobId: job.id }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      toast.error(data.error);
+      return;
+    }
+    toast.success("job restarted");
+    onOpenChange(false);
+  }
 
   function copyJobId(job: Job) {
     navigator.clipboard.writeText(job.id);
@@ -153,7 +173,7 @@ export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps)
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => toast("Not yet implemented", {})}>Continue</AlertDialogAction>
+                  <AlertDialogAction onClick={() => restartJob(job)}>Continue</AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
